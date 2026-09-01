@@ -230,6 +230,61 @@ function evaluateDeterministicJurisprudence(claim: string, code?: any, invariant
   };
 }
 
+/**
+ * A token bucket per client, in memory, with no dependency.
+ *
+ * This process authenticates nothing, so if it is ever reachable without a
+ * proxy in front — or with a proxy that only authenticates some paths — the
+ * only thing between it and a loop is this. Reads are cheap but not free: the
+ * whole ledger is 2.3MB on a 697-record store, and nothing else caps how often
+ * a stranger may ask for it.
+ *
+ * Deliberately not a library. The behaviour worth having is one bucket and a
+ * 429, and a dependency for that is a dependency to keep updated.
+ */
+const RATE_WINDOW_MS = 60_000;
+const RATE_MAX = Number(process.env.RATE_LIMIT_PER_MINUTE ?? 120);
+const buckets = new Map<string, { count: number; resetAt: number }>();
+
+/**
+ * Behind a reverse proxy every request arrives from the proxy, so limiting by
+ * socket address would give the whole internet one shared bucket. Express reads
+ * `X-Forwarded-For` only when told how far to trust it, and `true` would trust a
+ * header the client can forge. One hop is what a single proxy in front means.
+ */
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 1));
+
+app.use((req, res, next) => {
+  if (RATE_MAX <= 0) return next();
+  const key = req.ip ?? 'unknown';
+  const now = Date.now();
+  const bucket = buckets.get(key);
+
+  if (!bucket || now >= bucket.resetAt) {
+    buckets.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    // Sweep here rather than on a timer: the map only grows while requests
+    // arrive, so the work is proportional to traffic and stops when it does.
+    if (buckets.size > 10_000) {
+      for (const [k, b] of buckets) if (now >= b.resetAt) buckets.delete(k);
+    }
+    return next();
+  }
+
+  if (bucket.count >= RATE_MAX) {
+    const retryAfter = Math.ceil((bucket.resetAt - now) / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    return res.status(429).json({
+      error: 'rate limit exceeded',
+      limit: RATE_MAX,
+      windowSeconds: RATE_WINDOW_MS / 1000,
+      retryAfter,
+    });
+  }
+
+  bucket.count++;
+  next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 
 // 1. Get Store Status & Inboxes
@@ -693,7 +748,12 @@ app.get('/api/mcp/config', (req, res) => {
 // 2. Read All Records (with SPEC MUST 6 Known Missing checks)
 app.get('/api/relay/records', async (req, res) => {
   try {
-    const records = await store.getAllRecords();
+    // `?limit` was accepted by nobody: the route called getAllRecords() with no
+    // argument, so the whole ledger was read and returned however the request
+    // was framed. 2.3MB on a 697-record store, per request, unauthenticated.
+    const raw = Number(req.query.limit);
+    const limit = Number.isInteger(raw) && raw > 0 ? Math.min(raw, 1000) : undefined;
+    const records = await store.getAllRecords(limit);
     res.json({ records });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
