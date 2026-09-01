@@ -1203,7 +1203,10 @@ async function start() {
 
   const status = await store.getStatus();
   app.listen(PORT, HOST, () => {
-    console.log(`[Relay Engine] Server listening on http://0.0.0.0:${PORT}`);
+    // The literal used to say 0.0.0.0 regardless of where it bound, so an
+    // operator checking the log was told the opposite of what was true after
+    // the default became loopback.
+    console.log(`[Relay Engine] Server listening on http://${HOST}:${PORT}`);
     console.log(`[Relay Engine] Store initialized (Type: ${status.storeType}, Root: ${status.storeRoot || 'N/A'})`);
   });
 }
