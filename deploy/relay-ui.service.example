@@ -1,0 +1,46 @@
+# Template. Replace the paths, copy to ~/.config/systemd/user/relay-ui.service
+[Unit]
+Description=relay-ui — read-only view of the p-e relay store
+Documentation=https://github.com/it-start/relay-ui
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/relay-ui
+
+# Bound to the docker bridge, not to every interface. This process
+# authenticates nothing: Caddy in front of it does, and the binding is the
+# second barrier rather than the only one. 127.0.0.1 would be tighter but
+# unreachable — Caddy runs in a container and arrives via 172.17.0.1.
+Environment=NODE_ENV=production
+# 127.0.0.1 for a proxy on the host; the docker bridge (often
+# 172.17.0.1) if the proxy runs in a container.
+Environment=HOST=127.0.0.1
+Environment=PORT=3777
+Environment=PE_STORE_ROOT=/srv/p-e/relay
+
+# ALLOW_AGENT_EXEC is deliberately unset. Setting it turns /api/relay/agent-exec
+# on, which runs models on API keys held by this process and has no
+# authentication of its own.
+
+# bun rather than node: the nvm path carries a version
+# (~/.nvm/versions/node/v22.19.0/bin/node) and breaks on the next upgrade.
+# ~/.bun/bin/bun is stable, and it runs the CJS bundle.
+ExecStart=/home/USER/.bun/bin/bun dist/server.cjs
+
+Restart=on-failure
+RestartSec=3
+
+# The store it reads is append-only and this backend refuses writes, so the
+# service needs no write access to it at all.
+ReadOnlyPaths=/srv/p-e/relay
+PrivateTmp=true
+NoNewPrivileges=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=relay-ui
+
+[Install]
+WantedBy=default.target
