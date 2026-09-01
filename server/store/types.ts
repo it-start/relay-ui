@@ -5,6 +5,26 @@
  * S3/GCS CAS, Custom Converter Adapters, or Remote Store Proxies).
  */
 
+export interface StoreCapabilities {
+  readonly write: boolean;
+  readonly delete: boolean;
+  readonly reset: boolean;
+}
+
+export type DigestScheme = 'canonical-json-payload' | 'raw-body-bytes' | 'custom' | string;
+
+export class StoreCapabilityError extends Error {
+  readonly capability: keyof StoreCapabilities;
+  readonly storeId: string;
+
+  constructor(storeId: string, capability: keyof StoreCapabilities, message?: string) {
+    super(message || `Relay Store "${storeId}" does not support operation "${capability}" (capability disabled).`);
+    this.name = 'StoreCapabilityError';
+    this.capability = capability;
+    this.storeId = storeId;
+  }
+}
+
 export interface EnvelopeHeaderBlock {
   deposited_by: string;
   timestamp: string;
@@ -47,6 +67,7 @@ export interface RelayStoreStatus {
   status: 'online' | 'degraded' | 'offline';
   storeType: string;
   storeRoot?: string;
+  capabilities: StoreCapabilities;
   totalSequencesAllocated: number;
   presentRecordsCount: number;
   knownMissingCount: number;
@@ -93,9 +114,12 @@ export interface InboxMessage {
 export interface VerifyDigestResult {
   locator: string;
   valid: boolean;
+  digestScheme: DigestScheme;
+  schemeDescription?: string;
   headerDigest: string;
   computedDigest: string;
   canonicalPayloadString?: string;
+  rawBodyBytes?: string;
 }
 
 export interface DeletePayloadResult {
@@ -112,10 +136,13 @@ export interface IRelayStore {
   /** Identifier of the store backend */
   readonly id: string;
 
+  /** Operational capabilities declared by this store (Read-Only, Immutable, Full RW, etc.) */
+  readonly capabilities: StoreCapabilities;
+
   /** Initialize store, verify directories/tables and seed genesis if needed */
   init(): Promise<void> | void;
 
-  /** Retrieve current store metrics and inbox counts */
+  /** Retrieve current store metrics, capabilities and inbox counts */
   getStatus(): Promise<RelayStoreStatus> | RelayStoreStatus;
 
   /** Allocate next monotonic sequence slot */

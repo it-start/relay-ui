@@ -96,3 +96,23 @@ export interface FailureModeSimulation {
   v1ConformingBehavior: string;
   guaranteeAffected: 'G1' | 'G2a' | 'G2b' | 'Ordering' | 'None';
 }
+
+export interface StoreCapabilities {
+  readonly write: boolean;
+  readonly delete: boolean;
+  readonly reset: boolean;
+}
+
+export type DigestScheme = 'canonical-json-payload' | 'raw-body-bytes' | 'custom' | string;
+
+export interface VerifyDigestResult {
+  locator: string;
+  valid: boolean;
+  digestScheme: DigestScheme;
+  schemeDescription?: string;
+  headerDigest: string;
+  computedDigest: string;
+  canonicalPayloadString?: string;
+  rawBodyBytes?: string;
+}
+

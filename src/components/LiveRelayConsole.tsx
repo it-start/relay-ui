@@ -43,7 +43,13 @@ interface RelayRecordItem {
 
 interface RelayStatus {
   status: string;
+  storeType?: string;
   storeRoot: string;
+  capabilities?: {
+    write: boolean;
+    delete: boolean;
+    reset: boolean;
+  };
   totalSequencesAllocated: number;
   presentRecordsCount: number;
   knownMissingCount: number;
@@ -490,6 +496,10 @@ export const LiveRelayConsole: React.FC = () => {
   };
 
   const deleteRecordPayload = async (locator: string) => {
+    if (status?.capabilities && !status.capabilities.delete) {
+      addLog(`[CAPABILITY REFUSED] Удаление невозможно: текущее хранилище (${status.storeType || 'custom'}) объявлено как неизменяемое (capabilities.delete: false).`);
+      return;
+    }
     addLog(`[SPEC MUST 6] Тестирование удаления payload для ${locator}...`);
     try {
       const res = await fetch(`/api/relay/records/${locator}`, { method: 'DELETE' });
@@ -511,10 +521,13 @@ export const LiveRelayConsole: React.FC = () => {
       const res = await fetch(`/api/relay/verify/${locator}`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
+        const schemeInfo = data.digestScheme 
+          ? ` [Схема: ${data.digestScheme}${data.schemeDescription ? ` · ${data.schemeDescription}` : ''}]` 
+          : '';
         if (data.valid) {
-          addLog(`[VERIFY OK] ${locator} валиден! Дайджест совпадает: ${data.headerDigest}`);
+          addLog(`[VERIFY OK] ${locator} валиден!${schemeInfo} Дайджест: ${data.headerDigest}`);
         } else {
-          addLog(`[VERIFY FAILED] НЕСОВПАДЕНИЕ ДАЙДЖЕСТА в ${locator}! Header: ${data.headerDigest} vs Calc: ${data.computedDigest}`);
+          addLog(`[VERIFY FAILED] НЕСОВПАДЕНИЕ ДАЙДЖЕСТА в ${locator}!${schemeInfo} Header: ${data.headerDigest} vs Calc: ${data.computedDigest}`);
         }
       } else {
         addLog(`[ERROR] ${data.error}`);
@@ -525,13 +538,20 @@ export const LiveRelayConsole: React.FC = () => {
   };
 
   const resetStore = async () => {
+    if (status?.capabilities && !status.capabilities.reset) {
+      addLog(`[CAPABILITY REFUSED] Сброс невозможен: хранилище (${status.storeType || 'custom'}) запрещает reset (capabilities.reset: false).`);
+      return;
+    }
     if (!confirm('Сбросить состояние хранилища релея к начальным эталонным записям?')) return;
     addLog('[RESET] Очистка и сброс хранилища...');
     try {
       const res = await fetch('/api/relay/reset', { method: 'POST' });
+      const data = await res.json();
       if (res.ok) {
         addLog('[RESET OK] Хранилище сброшено и инициализировано.');
         await fetchRelayState();
+      } else {
+        addLog(`[ERROR] ${data.error || 'Сброс не удался'}`);
       }
     } catch (err: any) {
       addLog(`[ERROR] ${err.message}`);
@@ -562,6 +582,15 @@ export const LiveRelayConsole: React.FC = () => {
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
                   <span>SPEC v0.12 · HLC Active</span>
                 </span>
+                {status?.capabilities && (
+                  <span className={`px-2 py-0.5 text-[10px] font-mono font-semibold rounded-full border ${
+                    status.capabilities.write 
+                      ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30' 
+                      : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                  }`}>
+                    {status.capabilities.write ? 'Store: RW' : 'Store: Immutable (RO)'}
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
                 Интеграция <code className="text-indigo-300 font-mono">relay.ts</code>: штампование HLC, канонизация <code className="text-indigo-300">JCS RFC 8785</code>, проверка причинности и транспортная шина.
@@ -572,8 +601,9 @@ export const LiveRelayConsole: React.FC = () => {
           <div className="flex items-center space-x-2">
             <button
               onClick={runTriadSimulation}
-              disabled={isTriadRunning}
-              className="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
+              disabled={isTriadRunning || status?.capabilities?.write === false}
+              className="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-semibold shadow-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
+              title={status?.capabilities?.write === false ? 'Запись отключена для данного стора' : 'Запустить Триаду'}
             >
               <Zap className="w-3.5 h-3.5" />
               <span>{isTriadRunning ? 'Выполняется...' : 'Запустить Триаду'}</span>
@@ -591,8 +621,13 @@ export const LiveRelayConsole: React.FC = () => {
 
             <button
               onClick={resetStore}
-              className="flex items-center space-x-1 px-2.5 py-2 rounded-lg bg-red-950/40 hover:bg-red-900/50 text-red-300 text-xs font-medium border border-red-800/40 transition"
-              title="Сбросить релей к эталону"
+              disabled={status?.capabilities?.reset === false}
+              className={`flex items-center space-x-1 px-2.5 py-2 rounded-lg text-xs font-medium border transition ${
+                status?.capabilities?.reset === false
+                  ? 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed opacity-40'
+                  : 'bg-red-950/40 hover:bg-red-900/50 text-red-300 border-red-800/40'
+              }`}
+              title={status?.capabilities?.reset === false ? 'Сброс заблокирован (Хранилище неизменяемо)' : 'Сбросить релей к эталону'}
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
@@ -935,11 +970,22 @@ export const LiveRelayConsole: React.FC = () => {
             <div className="flex space-x-2 pt-2">
               <button
                 onClick={handlePublishAct}
-                disabled={isPosting || !claimText.trim()}
-                className="flex-1 flex items-center justify-center space-x-2 py-2.5 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-sm disabled:opacity-50"
+                disabled={isPosting || !claimText.trim() || status?.capabilities?.write === false}
+                className={`flex-1 flex items-center justify-center space-x-2 py-2.5 px-4 rounded-lg text-white text-xs font-bold transition shadow-sm ${
+                  status?.capabilities?.write === false
+                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                    : 'bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50'
+                }`}
+                title={status?.capabilities?.write === false ? 'Запись заблокирована: хранилище в режиме Read-Only' : undefined}
               >
                 <Send className="w-3.5 h-3.5" />
-                <span>{isPosting ? 'Запечатывание & Публикация...' : 'Опубликовать Акт (Publish Act)'}</span>
+                <span>
+                  {status?.capabilities?.write === false
+                    ? 'Хранилище Read-Only'
+                    : isPosting
+                    ? 'Запечатывание & Публикация...'
+                    : 'Опубликовать Акт (Publish Act)'}
+                </span>
               </button>
 
               <button
@@ -1181,8 +1227,13 @@ export const LiveRelayConsole: React.FC = () => {
 
                               <button
                                 onClick={() => deleteRecordPayload(rec.locator)}
-                                className="p-1.5 rounded bg-red-950/40 hover:bg-red-900/50 text-red-400 border border-red-800/40 text-xs transition"
-                                title="Удалить payload (Тест SPEC MUST 6: KNOWN_MISSING)"
+                                disabled={status?.capabilities?.delete === false}
+                                className={`p-1.5 rounded text-xs transition border ${
+                                  status?.capabilities?.delete === false
+                                    ? 'bg-slate-900/50 text-slate-600 border-slate-800 cursor-not-allowed opacity-30'
+                                    : 'bg-red-950/40 hover:bg-red-900/50 text-red-400 border-red-800/40'
+                                }`}
+                                title={status?.capabilities?.delete === false ? 'Удаление заблокировано (Хранилище неизменяемо)' : 'Удалить payload (Тест SPEC MUST 6: KNOWN_MISSING)'}
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>

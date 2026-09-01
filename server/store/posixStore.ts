@@ -2,6 +2,8 @@ import path from 'path';
 import fs from 'fs';
 import { 
   IRelayStore, 
+  StoreCapabilities,
+  StoreCapabilityError,
   Envelope, 
   RelayRecord, 
   RelayStoreStatus, 
@@ -29,6 +31,11 @@ export interface PosixStoreHooks {
 export class PosixRelayStore implements IRelayStore {
   readonly id = 'posix-o-excl-store';
   readonly storeRoot: string;
+  readonly capabilities: StoreCapabilities = {
+    write: true,
+    delete: true,
+    reset: true
+  };
   private dirs: {
     history: string;
     records: string;
@@ -113,6 +120,7 @@ export class PosixRelayStore implements IRelayStore {
       status: 'online',
       storeType: this.id,
       storeRoot: this.storeRoot,
+      capabilities: this.capabilities,
       totalSequencesAllocated: historyFiles.length,
       presentRecordsCount: recordFiles.length,
       knownMissingCount: Math.max(0, historyFiles.length - recordFiles.length),
@@ -149,6 +157,10 @@ export class PosixRelayStore implements IRelayStore {
   }
 
   deposit(data: DepositInput): Envelope {
+    if (!this.capabilities.write) {
+      throw new StoreCapabilityError(this.id, 'write', `Cannot deposit record: store "${this.id}" is configured as read-only.`);
+    }
+
     const { seq, locator } = this.allocateSequence();
     const canPayload = canonicalJson(data.payload || {});
     const digest = `sha256:${sha256(canPayload)}`;
@@ -262,6 +274,10 @@ export class PosixRelayStore implements IRelayStore {
   }
 
   deletePayload(locator: string): DeletePayloadResult {
+    if (!this.capabilities.delete) {
+      throw new StoreCapabilityError(this.id, 'delete', `Cannot delete payload for ${locator}: store "${this.id}" is immutable.`);
+    }
+
     const recordFile = path.join(this.dirs.records, `${locator}.json`);
     const markerFile = path.join(this.dirs.history, locator);
 
@@ -310,6 +326,8 @@ export class PosixRelayStore implements IRelayStore {
       return {
         locator,
         valid: computedDigest === headerDigest,
+        digestScheme: 'canonical-json-payload',
+        schemeDescription: 'RFC 8785 JSON Canonicalization Scheme (JCS)',
         headerDigest,
         computedDigest,
         canonicalPayloadString: canPayload
@@ -320,6 +338,10 @@ export class PosixRelayStore implements IRelayStore {
   }
 
   sendToInbox(agent: string, message: InboxMessageInput): InboxMessage {
+    if (!this.capabilities.write) {
+      throw new StoreCapabilityError(this.id, 'write', `Cannot send inbox message: store "${this.id}" is read-only.`);
+    }
+
     let targetDir = this.dirs.inboxGemini;
     if (agent === 'claude') targetDir = this.dirs.inboxClaude;
     else if (agent === 'chatgpt') targetDir = this.dirs.inboxChatGPT;
@@ -368,6 +390,10 @@ export class PosixRelayStore implements IRelayStore {
   }
 
   reset(): void {
+    if (!this.capabilities.reset) {
+      throw new StoreCapabilityError(this.id, 'reset', `Cannot reset store: store "${this.id}" does not permit reset.`);
+    }
+
     Object.values(this.dirs).forEach((dir) => {
       if (fs.existsSync(dir)) {
         const files = fs.readdirSync(dir);

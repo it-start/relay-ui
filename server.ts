@@ -727,6 +727,13 @@ app.post('/api/relay/deposit', async (req, res) => {
       envelope
     });
   } catch (error: any) {
+    if (error.name === 'StoreCapabilityError') {
+      return res.status(405).json({
+        error: error.message,
+        capability: error.capability,
+        storeId: error.storeId
+      });
+    }
     res.status(500).json({ error: error.message });
   }
 });
@@ -754,6 +761,13 @@ app.post('/api/relay/send', async (req, res) => {
       envelope
     });
   } catch (error: any) {
+    if (error.name === 'StoreCapabilityError') {
+      return res.status(405).json({
+        error: error.message,
+        capability: error.capability,
+        storeId: error.storeId
+      });
+    }
     res.status(500).json({ error: error.message });
   }
 });
@@ -786,6 +800,13 @@ app.delete('/api/relay/records/:locator', async (req, res) => {
 
     res.json(result);
   } catch (error: any) {
+    if (error.name === 'StoreCapabilityError') {
+      return res.status(405).json({
+        error: error.message,
+        capability: error.capability,
+        storeId: error.storeId
+      });
+    }
     res.status(500).json({ error: error.message });
   }
 });
@@ -992,6 +1013,13 @@ app.post('/api/relay/reset', async (req, res) => {
     await store.reset();
     res.json({ success: true, message: 'Relay store reset and seeded successfully.' });
   } catch (error: any) {
+    if (error.name === 'StoreCapabilityError') {
+      return res.status(405).json({
+        error: error.message,
+        capability: error.capability,
+        storeId: error.storeId
+      });
+    }
     res.status(500).json({ error: error.message });
   }
 });
