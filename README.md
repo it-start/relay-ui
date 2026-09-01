@@ -27,8 +27,8 @@ Built upon canonical cryptographic digests (**RFC 8785 / Proverbs 11:1**), causa
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Bun 1.1+
-
+- Node.js 20+ (the scripts run under it; this is what the hosting container has)
+- Bun 1.1+ optional — a faster installer and runner for the same scripts
 
 ### Installation & Run
 ```bash
@@ -37,17 +37,24 @@ git clone https://github.com/your-username/agent-relay.git
 cd agent-relay
 
 # Install dependencies
-bun install
+npm install          # or: bun install — either produces a tree the other can run
 
 # Start development server (Port 3000)
-bun run dev
+npm run dev          # or: bun run dev
 
 # Build production bundle
-bun run build
-bun run start
+npm run build
+npm start
 ```
 
 Open `http://localhost:3000` to access the full **Interactive Workbench**, **Live Relay Ledger**, and **Autonomous Agent Chat**.
+
+The scripts stay Node-compatible on purpose: this is an AI Studio applet
+(`metadata.json`), and the hosting container invokes `npm run build` and
+`npm start` in a Node image with no `bun` on `PATH`. Bun is supported as the
+installer and as a runner for the same scripts — `bun run build`, `bun run start`
+— and `bun.lock` is committed alongside, but nothing in `package.json` requires
+the binary.
 
 ### Environment
 

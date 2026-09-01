@@ -35,5 +35,5 @@ When generating or editing code in this repository, you **MUST** uphold these ru
 
 ## 🧪 Testing & Verification Directives
 Before committing any changes:
-- Run `bun run lint` (`tsc --noEmit`) to verify zero TypeScript errors.
-- Run `bun run build` to ensure the Vite client builds. The server is not bundled: `bun` runs `server.ts` directly.
+- Run `npm run lint` (`tsc --noEmit`) to verify zero TypeScript errors.
+- Run `npm run build` to ensure both the Vite client and the esbuild server bundle succeed. Node cannot run `server.ts` directly — `./server/store` is a directory import and ESM will not resolve it — so the bundle is what production runs.

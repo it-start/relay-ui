@@ -24,12 +24,12 @@ Any pull request modifying core relay behaviors must adhere to the **SPEC MUST 1
    ```
 2. **Install Dependencies**:
    ```bash
-   bun install
+   npm install
    ```
 3. **Verify Type-Safety & Build**:
    ```bash
-   bun run lint
-   bun run build
+   npm run lint
+   npm run build
    ```
 4. **Submit a Pull Request**:
    - Provide a clear description of the invariant or feature addressed.
