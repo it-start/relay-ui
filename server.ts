@@ -7,8 +7,39 @@ import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT ?? 3000);
+
+// Loopback by default. This process has no authentication of any kind: every
+// route below is reachable by anyone who can reach the socket. Binding 0.0.0.0
+// put `POST /api/relay/reset` and `DELETE /api/relay/records/:locator` on every
+// interface of the host. Exposure is now a deliberate act — set HOST=0.0.0.0 —
+// and the intended deployment is a reverse proxy that authenticates first.
+const HOST = process.env.HOST ?? '127.0.0.1';
 const STORE_ROOT = path.resolve(process.cwd(), '.relay_store');
+
+/**
+ * A locator names a slot in this store and nothing else.
+ *
+ * `req.params.locator` reached `path.join` unchecked on three routes, and Express
+ * decodes `%2f`, so `..%2f..%2f..%2ftmp%2fx` arrives as `../../../tmp/x`. That
+ * gave `verify` a read of any `.json` on the filesystem and `delete` an unlink of
+ * any file with a sibling that has no extension. Measured against a scratch file
+ * before this guard existed.
+ *
+ * The shape is fixed by the allocator — `relay-` plus digits — so matching it is
+ * not a heuristic. Anything else is refused before a path is built, rather than
+ * normalised into one, because a rejected name cannot escape a directory.
+ */
+const LOCATOR = /^relay-\d+$/;
+
+function badLocator(locator: string, res: express.Response): boolean {
+  if (LOCATOR.test(locator)) return false;
+  res.status(400).json({ error: 'locator must match relay-<digits>' });
+  return true;
+}
+
+// An agent name selects an inbox directory and has the same exposure.
+const AGENT = /^[a-z0-9_-]+$/i;
 
 // Ensure directories exist
 const DIRS = {
@@ -953,6 +984,9 @@ app.post('/api/relay/send', (req, res) => {
 app.get('/api/relay/inbox/:agent', (req, res) => {
   try {
     const agent = req.params.agent;
+    if (!AGENT.test(agent)) {
+      return res.status(400).json({ error: 'agent must be alphanumeric' });
+    }
     let targetDir = DIRS.inboxGemini;
     if (agent === 'claude') targetDir = DIRS.inboxClaude;
     else if (agent === 'chatgpt') targetDir = DIRS.inboxChatGPT;
@@ -978,6 +1012,7 @@ app.get('/api/relay/inbox/:agent', (req, res) => {
 app.delete('/api/relay/records/:locator', (req, res) => {
   try {
     const locator = req.params.locator;
+    if (badLocator(locator, res)) return;
     const recordFile = path.join(DIRS.records, `${locator}.json`);
     const markerFile = path.join(DIRS.history, locator);
 
@@ -1016,6 +1051,7 @@ app.delete('/api/relay/records/:locator', (req, res) => {
 app.post('/api/relay/verify/:locator', (req, res) => {
   try {
     const locator = req.params.locator;
+    if (badLocator(locator, res)) return;
     const recordFile = path.join(DIRS.records, `${locator}.json`);
 
     if (!fs.existsSync(recordFile)) {
@@ -1249,7 +1285,33 @@ app.post('/api/relay/reset', (req, res) => {
 });
 
 // 11. Multi-Agent Dynamic Executor (Claude / ChatGPT / Mistral / Gemini / Mimo)
+/**
+ * Runs a model on request text using keys held by this process.
+ *
+ * Off unless `ALLOW_AGENT_EXEC=1`. Unauthenticated and reachable by anyone who
+ * can reach the socket, it is an open proxy to whatever ANTHROPIC_API_KEY,
+ * OPENAI_API_KEY, MISTRAL_API_KEY and GEMINI_API_KEY are set — arbitrary prompts
+ * billed to whoever runs the server. Default-on made that the deployment's
+ * normal state rather than a choice.
+ *
+ * Deleting it was the other option and was not taken: seven call sites in the
+ * chat interface depend on it, and removing the endpoint removes the feature
+ * this UI exists to show. So it stays for local use and is opt-in for exposure.
+ *
+ * The intended shape for a public deployment is the opposite direction anyway —
+ * agents connect *inward* as MCP clients over `/api/mcp`, carrying their own
+ * credentials, and this process holds no keys at all.
+ */
+const ALLOW_AGENT_EXEC = process.env.ALLOW_AGENT_EXEC === '1';
+
 app.post('/api/relay/agent-exec', async (req, res) => {
+  if (!ALLOW_AGENT_EXEC) {
+    return res.status(503).json({
+      error: 'agent-exec is disabled',
+      detail: 'Set ALLOW_AGENT_EXEC=1 to enable. It runs models on server-held API keys and has no authentication of its own.',
+      alternative: 'Connect an agent to /api/mcp as an MCP client instead; it carries its own credentials.',
+    });
+  }
   try {
     const { agent, type, title, text, payload, parent_locator } = req.body;
     const targetAgent = agent || 'claude';
@@ -1399,7 +1461,7 @@ async function start() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  app.listen(PORT, HOST, () => {
     console.log(`[Relay Engine] Server listening on http://0.0.0.0:${PORT}`);
     console.log(`[Relay Engine] Store initialized at ${STORE_ROOT}`);
   });
