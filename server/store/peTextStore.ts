@@ -197,7 +197,12 @@ export class PeTextRelayStore implements IRelayStore {
    */
   getAllRecords(limit?: number): RelayRecord[] {
     const held = this.heldIds();
-    const all = this.markers().map((locator) => {
+    // Sliced before the map, not after. Reading 697 files to return the last
+    // twenty is work the caller asked not to have done, and `?limit=20` was
+    // measured at 35ms against 42ms for the whole store — the response shrank
+    // and the I/O did not.
+    const wanted = limit ? this.markers().slice(-limit) : this.markers();
+    const all = wanted.map((locator) => {
       const envelope = held.has(locator) ? this.envelopeOf(locator) : null;
       if (envelope) return { locator, status: 'PRESENT' as const, envelope };
       if (held.has(locator)) {
@@ -215,7 +220,7 @@ export class PeTextRelayStore implements IRelayStore {
         note: 'Marker held, record absent. The binding persists beyond the record.',
       };
     });
-    return limit ? all.slice(-limit) : all;
+    return all;
   }
 
   getRecord(locator: string): RelayRecord | null {

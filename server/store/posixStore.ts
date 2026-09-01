@@ -208,7 +208,12 @@ export class PosixRelayStore implements IRelayStore {
       return [];
     }
 
-    const markers = fs.readdirSync(this.dirs.history).sort();
+    // Sliced before the records are read, so a limit reduces the work and not
+    // only the response.
+    const markers = (() => {
+      const all = fs.readdirSync(this.dirs.history).sort();
+      return limit ? all.slice(-limit) : all;
+    })();
     const records: RelayRecord[] = markers.map((marker) => {
       const recordPath = path.join(this.dirs.records, `${marker}.json`);
       if (fs.existsSync(recordPath)) {
@@ -237,7 +242,7 @@ export class PosixRelayStore implements IRelayStore {
       }
     });
 
-    return limit ? records.slice(-limit) : records;
+    return records;
   }
 
   getRecord(locator: string): RelayRecord | null {
