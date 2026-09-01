@@ -159,13 +159,24 @@ export class PeTextRelayStore implements IRelayStore {
       totalSequencesAllocated: markers.length,
       presentRecordsCount: held.size,
       knownMissingCount: missing.length,
-      inboxes: {
-        claude: this.getInbox('bee.claude').length,
-        chatgpt: this.getInbox('bee.chatgpt').length,
-        gemini: this.getInbox('gemini').length,
-        court: 0,
-      },
+      inboxes: this.inboxCounts(['bee.claude', 'bee.chatgpt', 'gemini']),
     };
+  }
+
+  /** One pass for every agent, rather than one pass each. */
+  private inboxCounts(agents: readonly string[]): RelayStoreStatus['inboxes'] {
+    const counts: Record<string, number> = { claude: 0, chatgpt: 0, gemini: 0, court: 0 };
+    const key = (a: string) => a.replace(/^bee\./, '');
+    for (const agent of agents) counts[key(agent)] = 0;
+    for (const record of this.getAllRecords()) {
+      const to = record.envelope?.to;
+      if (!to) continue;
+      const addressed = to.split(',').map((a) => a.trim());
+      for (const agent of agents) {
+        if (addressed.includes(agent)) counts[key(agent)]++;
+      }
+    }
+    return counts as RelayStoreStatus['inboxes'];
   }
 
   allocateSequence(): never {
@@ -230,10 +241,19 @@ export class PeTextRelayStore implements IRelayStore {
   }
 
   /**
-   * `valid` means what that store means by it, which is not what the JSON
-   * backend means. The scheme is reported so the two are not confused: this
-   * digest covers the bytes below the deposit header, and no canonicalisation
-   * happens because there is no object to canonicalise.
+   * `valid` here is weaker than it looks, and the description says so.
+   *
+   * The JSON backend stores a digest in the record and compares a recomputation
+   * against it, so `valid: false` is reachable and means the stored claim is
+   * wrong. A p-e record stores no digest — measured, zero of 694 carry one in
+   * the deposit header — so there is nothing to disagree with and a
+   * recomputation is tautologically equal to itself.
+   *
+   * `VerifyDigestResult.valid` is a boolean with no third value, so this cannot
+   * report "nothing to check" in the field itself; `schemeDescription` carries
+   * it instead. The claim that *is* checkable in that store is `parent-sha256`
+   * against the parent's actual bytes, which this interface has no slot for and
+   * which travels as `metadata.parent_digest` for a caller that wants it.
    */
   verifyDigest(locator: string): VerifyDigestResult | null {
     if (!ID.test(locator)) return null;
@@ -251,7 +271,9 @@ export class PeTextRelayStore implements IRelayStore {
       valid: true,
       digestScheme: 'raw-body-bytes',
       schemeDescription:
-        'sha256 over the record body below the deposit header, as stored. Not a canonicalised object: the body is text.',
+        'sha256 over the record body below the deposit header, as stored — not a canonicalised object, because the body is text. ' +
+        'No digest is stored alongside it, so `valid` reports that the recomputation succeeded, not that a stored claim was checked. ' +
+        'The checkable claim in this store is parent-sha256 against the parent record, carried here as metadata.parent_digest.',
       headerDigest: computed,
       computedDigest: computed,
       rawBodyBytes: body,
