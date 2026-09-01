@@ -1,0 +1,73 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A run that starts while an earlier one is still going for the same ref makes
+# the earlier one's result meaningless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    # Two versions rather than one: the scripts must keep working under whatever
+    # the hosting container has, and `metadata.json` says that is a Node image.
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+    runs-on: ubuntu-latest
+    name: node ${{ matrix.node }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # `npm install`, not `npm ci`: this repository's lockfile is bun.lock, and
+      # the deterministic install is the bun job below. Pinning a second
+      # lockfile would create two that can disagree.
+      - run: npm install --no-audit --no-fund
+
+      - run: npm run lint
+      - run: npm run build
+
+      # Runs against a temporary store. Covers the allocator: monotonic
+      # sequences, a marker outliving its record, a freed locator never reused,
+      # and O_CREAT | O_EXCL refusing a held slot.
+      - run: npx tsx scripts/check-posix-store.ts
+
+      # The read-only adapter reads a p-e store, which CI has none of, so one is
+      # generated. Three records covering both citation shapes and a marker
+      # whose record is absent.
+      - name: check pe store against a generated fixture
+        run: |
+          bash scripts/make-pe-fixture.sh "$RUNNER_TEMP/pe-store"
+          PE_STORE_ROOT="$RUNNER_TEMP/pe-store" npx tsx scripts/check-pe-store.ts
+
+  bun:
+    runs-on: ubuntu-latest
+    name: bun
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+
+      # The one deterministic install here, and it fails if bun.lock does not
+      # match package.json rather than quietly resolving something else.
+      - run: bun install --frozen-lockfile
+
+      - run: bun run lint
+      - run: bun run build
+
+      # The same allocator checks under a second runtime. O_CREAT | O_EXCL is a
+      # system call each runtime implements for itself, and monotonicity rests
+      # on it, so one runtime passing is not evidence about the other.
+      - run: bun scripts/check-posix-store.ts
+
+      - name: check pe store against a generated fixture
+        run: |
+          bash scripts/make-pe-fixture.sh "$RUNNER_TEMP/pe-store"
+          PE_STORE_ROOT="$RUNNER_TEMP/pe-store" bun scripts/check-pe-store.ts
