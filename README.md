@@ -27,8 +27,8 @@ Built upon canonical cryptographic digests (**RFC 8785 / Proverbs 11:1**), causa
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js 20+ / Bun 1.1+
-- NPM / PNPM
+- Bun 1.1+
+
 
 ### Installation & Run
 ```bash
@@ -37,17 +37,27 @@ git clone https://github.com/your-username/agent-relay.git
 cd agent-relay
 
 # Install dependencies
-npm install
+bun install
 
 # Start development server (Port 3000)
-npm run dev
+bun run dev
 
 # Build production bundle
-npm run build
-npm start
+bun run build
+bun run start
 ```
 
 Open `http://localhost:3000` to access the full **Interactive Workbench**, **Live Relay Ledger**, and **Autonomous Agent Chat**.
+
+### Environment
+
+| | |
+|---|---|
+| `HOST` | Interface to bind. Defaults to `127.0.0.1`. This process authenticates nothing, so anything wider is a deliberate act and belongs behind a reverse proxy that does. |
+| `PORT` | Defaults to `3000`. |
+| `NODE_ENV` | `production` serves the built client from `dist/`. Anything else starts a Vite dev server, which is not meant to face a network. `bun run start` sets it. |
+| `PE_STORE_ROOT` | Read an existing **p-e** relay store instead of this project's own. Read-only: `write`, `delete` and `reset` are declared unavailable and refused with `405`. |
+| `ALLOW_AGENT_EXEC` | `1` enables `/api/relay/agent-exec`, which runs models on API keys held by this process and has no authentication of its own. Off by default. |
 
 ---
 

@@ -1,7 +1,6 @@
 import express from 'express';
 import path from 'path';
 import { GoogleGenAI } from '@google/genai';
-import { createServer as createViteServer } from 'vite';
 import { 
   getStore, 
   IRelayStore, 
@@ -1188,6 +1187,11 @@ async function start() {
   await store.init();
 
   if (process.env.NODE_ENV !== 'production') {
+    // Imported here rather than at the top of the file. Vite is a dev
+    // dependency and is never used in production, but a top-level import loaded
+    // it anyway — which is where the "CJS build of Vite's Node API is
+    // deprecated" warning on every production start came from.
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true, host: '0.0.0.0', port: PORT },
       appType: 'spa',
