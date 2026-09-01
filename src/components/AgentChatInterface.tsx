@@ -3,14 +3,14 @@ import {
   Send, Bot, Sparkles, User, Scale, ShieldCheck, 
   Terminal, RefreshCw, Paperclip, ChevronDown, Check,
   Clock, Hash, ArrowDownRight, Layers, Play, Radio,
-  MessageSquare, Zap, Cpu, AlertCircle, Copy, Gavel
+  MessageSquare, Zap, Cpu, AlertCircle, Copy, Gavel, HelpCircle
 } from 'lucide-react';
 
 interface ChatMessage {
   id: string;
   seq?: number;
   locator?: string;
-  sender: 'human' | 'claude' | 'chatgpt' | 'gemini' | 'mistral' | 'court';
+  sender: 'human' | 'claude' | 'chatgpt' | 'gemini' | 'mistral' | 'court' | 'unknown';
   senderLabel: string;
   type: 'claim' | 'challenge' | 'finding' | 'ruling' | 'attestation' | 'system';
   title?: string;
@@ -40,6 +40,19 @@ const AGENT_CONFIGS: Record<string, {
     textColor: 'text-emerald-300',
     icon: User,
     roleDescription: 'Человек-архитектор и постановщик задач'
+  },
+  // A sender this UI does not recognise is rendered as itself. It used to fall
+  // back to `human`, which showed records written by someone else as written by
+  // the person reading them — 230 of 694 in the store this was first pointed at.
+  // A default that names a specific author is a claim; this one is not.
+  unknown: {
+    name: 'Unknown sender',
+    shortName: 'Unknown',
+    avatarBg: 'bg-slate-600/20 text-slate-400 border-slate-500/40',
+    badgeBg: 'bg-slate-950/60 text-slate-400 border-slate-800',
+    textColor: 'text-slate-300',
+    icon: HelpCircle,
+    roleDescription: 'Отправитель, не описанный в этом интерфейсе'
   },
   claude: {
     name: 'Claude Code (Sonnet 3.5)',
@@ -112,7 +125,9 @@ export const AgentChatInterface: React.FC = () => {
           .filter((rec: any) => rec.status === 'PRESENT' && rec.envelope)
           .map((rec: any) => {
             const env = rec.envelope;
-            let sender: ChatMessage['sender'] = 'human';
+            // Default `unknown`, not `human`: an unrecognised name is not
+            // evidence that the reader wrote it.
+            let sender: ChatMessage['sender'] = 'unknown';
             const from = env.from || '';
             if (from.includes('claude')) sender = 'claude';
             else if (from.includes('chatgpt')) sender = 'chatgpt';
@@ -524,7 +539,7 @@ export const AgentChatInterface: React.FC = () => {
           </div>
         ) : (
           messages.map((msg) => {
-            const cfg = AGENT_CONFIGS[msg.sender] || AGENT_CONFIGS.human;
+            const cfg = AGENT_CONFIGS[msg.sender] || AGENT_CONFIGS.unknown;
             const Icon = cfg.icon;
             const isHuman = msg.sender === 'human';
             const isTargeted = activeAdjudicatingId === msg.id;
