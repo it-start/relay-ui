@@ -1,10 +1,17 @@
 import express from 'express';
 import path from 'path';
-import fs from 'fs';
-import fsPromises from 'fs/promises';
-import crypto from 'crypto';
 import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
+import { 
+  getStore, 
+  IRelayStore, 
+  canonicalJson, 
+  sha256, 
+  Envelope, 
+  RelayRecord, 
+  RelayStoreStatus,
+  DepositInput 
+} from './server/store';
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -15,7 +22,6 @@ const PORT = Number(process.env.PORT ?? 3000);
 // interface of the host. Exposure is now a deliberate act — set HOST=0.0.0.0 —
 // and the intended deployment is a reverse proxy that authenticates first.
 const HOST = process.env.HOST ?? '127.0.0.1';
-const STORE_ROOT = path.resolve(process.cwd(), '.relay_store');
 
 /**
  * A locator names a slot in this store and nothing else.
@@ -41,172 +47,6 @@ function badLocator(locator: string, res: express.Response): boolean {
 // An agent name selects an inbox directory and has the same exposure.
 const AGENT = /^[a-z0-9_-]+$/i;
 
-// Ensure directories exist
-const DIRS = {
-  history: path.join(STORE_ROOT, 'history'),
-  records: path.join(STORE_ROOT, 'records'),
-  inboxClaude: path.join(STORE_ROOT, 'inbox', 'claude'),
-  inboxChatGPT: path.join(STORE_ROOT, 'inbox', 'chatgpt'),
-  inboxGemini: path.join(STORE_ROOT, 'inbox', 'gemini'),
-  inboxCourt: path.join(STORE_ROOT, 'inbox', 'court'),
-  outbox: path.join(STORE_ROOT, 'outbox'),
-};
-
-function initStore() {
-  Object.values(DIRS).forEach((dir) => {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-  });
-
-  // Seed with initial consensus records if empty
-  const records = fs.readdirSync(DIRS.records);
-  if (records.length === 0) {
-    seedInitialRecords();
-  }
-}
-
-function seedInitialRecords() {
-  const seeds = [
-    {
-      from: 'agent:claude-code-cli',
-      to: 'all',
-      type: 'claim',
-      title: 'Инициализация протокола SPEC v1',
-      payload: {
-        proposal: 'SPEC v1: Обязательные инварианты MUST 1-8 для детерминированного судилища агентов',
-        invariants: ['MUST 1: O_EXCL маркеры', 'MUST 3: Канонические весы Prov 11:1', 'MUST 6: Known Missing при удалении'],
-        author: 'Claude Code CLI',
-        version: '1.0.0'
-      }
-    },
-    {
-      from: 'agent:gemini-criterion-guard',
-      to: 'all',
-      type: 'finding',
-      title: 'Проверка канонических инвариантов SPEC v1',
-      payload: {
-        verdict: 'PASS',
-        confidence: 1.0,
-        biblical_principle: 'Proverbs 11:1 - Неверные весы — мерзость перед Господом, но правильный вес угоден Ему',
-        reasoning: 'Инварианты SPEC v1 обеспечивают строго монотонную последовательность и защиту от гонок перепривязки.'
-      }
-    }
-  ];
-
-  seeds.forEach((seed) => {
-    depositRecordInternal(seed);
-  });
-}
-
-/**
- * Just Scales Canonical JSON serialization (Proverbs 11:1)
- * Keys recursively sorted alphabetically, strict separators
- */
-function canonicalJson(obj: any): string {
-  if (obj === null || typeof obj !== 'object') {
-    return JSON.stringify(obj);
-  }
-  if (Array.isArray(obj)) {
-    return '[' + obj.map(canonicalJson).join(',') + ']';
-  }
-  const keys = Object.keys(obj).sort();
-  const pairs = keys.map((key) => `${JSON.stringify(key)}:${canonicalJson(obj[key])}`);
-  return '{' + pairs.join(',') + '}';
-}
-
-function sha256(str: string): string {
-  return crypto.createHash('sha256').update(str).digest('hex');
-}
-
-/**
- * SPEC MUST 1: Monotonic sequence allocation via atomic O_EXCL empty marker
- */
-function allocateSequence(): { seq: number; locator: string } {
-  let seq = 1;
-  while (true) {
-    const locator = `relay-${String(seq).padStart(4, '0')}`;
-    const markerPath = path.join(DIRS.history, locator);
-    try {
-      const fd = fs.openSync(
-        markerPath,
-        fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY,
-        0o644
-      );
-      fs.closeSync(fd);
-      return { seq, locator };
-    } catch (err: any) {
-      if (err.code === 'EEXIST') {
-        seq++;
-        continue;
-      }
-      throw err;
-    }
-  }
-}
-
-/**
- * Deposit record into store with atomic write and Just Scales digest (SPEC MUST 1-8)
- */
-function depositRecordInternal(data: {
-  from: string;
-  to?: string;
-  type: string;
-  title?: string;
-  payload: Record<string, any>;
-  parent_locator?: string;
-  metadata?: Record<string, any>;
-}) {
-  const { seq, locator } = allocateSequence();
-  const canPayload = canonicalJson(data.payload || {});
-  const digest = `sha256:${sha256(canPayload)}`;
-  const timestamp = new Date().toISOString();
-
-  const envelope = {
-    id: `env-${Date.now()}-${seq}`,
-    seq,
-    locator,
-    store_id: 'store:local-hub-01',
-    digest,
-    type: data.type || 'claim',
-    title: data.title || `Record ${locator}`,
-    from: data.from || 'agent:anonymous',
-    to: data.to || 'all',
-    parent_locator: data.parent_locator || null,
-    header_block: {
-      deposited_by: data.from || 'agent:anonymous',
-      timestamp,
-      seq,
-      locator,
-      digest
-    },
-    payload: data.payload || {},
-    metadata: data.metadata || {},
-    status: 'committed',
-    timestamp
-  };
-
-  const targetFile = path.join(DIRS.records, `${locator}.json`);
-  const tempFile = path.join(DIRS.records, `${locator}.tmp.${process.pid}.${Date.now()}`);
-
-  fs.writeFileSync(tempFile, JSON.stringify(envelope, null, 2), 'utf-8');
-  fs.renameSync(tempFile, targetFile);
-
-  // Broadcast to all connected SSE clients (Claude CLI, UI, external agents)
-  broadcastSSE('deposit', {
-    locator,
-    seq,
-    type: envelope.type,
-    from: envelope.from,
-    to: envelope.to,
-    title: envelope.title,
-    digest: envelope.digest,
-    envelope
-  });
-
-  return envelope;
-}
-
 // SSE (Server-Sent Events) Connected Clients Manager
 interface SSEClient {
   id: string;
@@ -226,6 +66,38 @@ function broadcastSSE(eventType: string, data: any) {
     }
   });
 }
+
+// Initialize Relay Store with reactive SSE broadcast hooks
+const store: IRelayStore = getStore({
+  onDeposit: (envelope) => {
+    broadcastSSE('deposit', {
+      locator: envelope.locator,
+      seq: envelope.seq,
+      type: envelope.type,
+      from: envelope.from,
+      to: envelope.to,
+      title: envelope.title,
+      digest: envelope.digest,
+      envelope
+    });
+  },
+  onKnownMissing: (locator) => {
+    broadcastSSE('known_missing', {
+      locator,
+      status: 'KNOWN_MISSING',
+      note: 'Payload unlinked, monotonic marker preserved (SPEC MUST 6)'
+    });
+  },
+  onReset: () => {
+    broadcastSSE('store_reset', {
+      timestamp: new Date().toISOString(),
+      message: 'Store reset to initial state with genesis records.'
+    });
+  },
+  onInboxMessage: (targetAgent, msgId, envelope) => {
+    broadcastSSE('inbox_message', { targetAgent, msgId, envelope });
+  }
+});
 
 // MCP Session Map for SSE Transport
 const mcpSessions = new Map<string, express.Response>();
@@ -362,21 +234,9 @@ function evaluateDeterministicJurisprudence(claim: string, code?: any, invariant
 app.use(express.json({ limit: '10mb' }));
 
 // 1. Get Store Status & Inboxes
-app.get('/api/relay/status', (req, res) => {
+app.get('/api/relay/status', async (req, res) => {
   try {
-    const historyFiles = fs.existsSync(DIRS.history) ? fs.readdirSync(DIRS.history) : [];
-    const recordFiles = fs.existsSync(DIRS.records) ? fs.readdirSync(DIRS.records).filter(f => f.endsWith('.json')) : [];
-    
-    const getInboxCount = (dir: string) => {
-      return fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => f.endsWith('.json')).length : 0;
-    };
-
-    const inboxes = {
-      claude: getInboxCount(DIRS.inboxClaude),
-      chatgpt: getInboxCount(DIRS.inboxChatGPT),
-      gemini: getInboxCount(DIRS.inboxGemini),
-      court: getInboxCount(DIRS.inboxCourt),
-    };
+    const storeStatus = await store.getStatus();
 
     const apiKeyPresent = Boolean(process.env.GEMINI_API_KEY);
     const anthropicKeyPresent = Boolean(process.env.ANTHROPIC_API_KEY);
@@ -384,12 +244,7 @@ app.get('/api/relay/status', (req, res) => {
     const mistralKeyPresent = Boolean(process.env.MISTRAL_API_KEY);
 
     res.json({
-      status: 'online',
-      storeRoot: STORE_ROOT,
-      totalSequencesAllocated: historyFiles.length,
-      presentRecordsCount: recordFiles.length,
-      knownMissingCount: Math.max(0, historyFiles.length - recordFiles.length),
-      inboxes,
+      ...storeStatus,
       activeSSEClients: sseClients.size,
       providers: {
         gemini: apiKeyPresent ? 'LIVE_KEY' : 'DETERMINISTIC_FALLBACK',
@@ -630,7 +485,7 @@ async function handleMcpRpc(body: any): Promise<any> {
       let toolResult: any = null;
 
       if (name === 'relay_publish_act') {
-        const envelope = depositRecordInternal({
+        const envelope = await store.deposit({
           from: args.from || 'agent:mcp-client',
           to: args.to || 'all',
           type: args.type || 'claim',
@@ -647,50 +502,26 @@ async function handleMcpRpc(body: any): Promise<any> {
         };
       } else if (name === 'relay_read_inbox') {
         const agent = args.agent;
-        let targetDir = DIRS.inboxGemini;
-        if (agent === 'claude') targetDir = DIRS.inboxClaude;
-        else if (agent === 'chatgpt') targetDir = DIRS.inboxChatGPT;
-        else if (agent === 'court') targetDir = DIRS.inboxCourt;
-
-        const files = fs.existsSync(targetDir) ? fs.readdirSync(targetDir).filter(f => f.endsWith('.json')) : [];
-        const messages = files.map(f => JSON.parse(fs.readFileSync(path.join(targetDir, f), 'utf-8')));
+        const messages = await store.getInbox(agent);
         toolResult = { agent, count: messages.length, messages };
       } else if (name === 'relay_send_inbox') {
         const { targetAgent, from, type, title, payload } = args;
-        let targetDir = DIRS.inboxGemini;
-        if (targetAgent === 'claude') targetDir = DIRS.inboxClaude;
-        else if (targetAgent === 'chatgpt') targetDir = DIRS.inboxChatGPT;
-        else if (targetAgent === 'court') targetDir = DIRS.inboxCourt;
-
-        const msgId = `msg-mcp-${Date.now()}`;
-        const envelope = {
-          id: msgId,
+        const envelope = await store.sendToInbox(targetAgent, {
           from: from || 'agent:mcp-client',
           to: targetAgent,
           type: type || 'claim',
           title: title || 'Message via MCP',
-          payload: payload || {},
-          timestamp: new Date().toISOString()
-        };
-        fs.writeFileSync(path.join(targetDir, `${msgId}.json`), JSON.stringify(envelope, null, 2));
-        
-        broadcastSSE('inbox_message', { targetAgent, msgId, envelope });
-        toolResult = { success: true, id: msgId, targetAgent };
-      } else if (name === 'relay_read_ledger') {
-        const markers = fs.existsSync(DIRS.history) ? fs.readdirSync(DIRS.history).sort() : [];
-        const records = markers.map(marker => {
-          const recFile = path.join(DIRS.records, `${marker}.json`);
-          if (fs.existsSync(recFile)) {
-            return { locator: marker, status: 'PRESENT', envelope: JSON.parse(fs.readFileSync(recFile, 'utf-8')) };
-          }
-          return { locator: marker, status: 'KNOWN_MISSING', envelope: null };
+          payload: payload || {}
         });
-        const finalRecords = args.limit ? records.slice(-args.limit) : records;
-        toolResult = { count: finalRecords.length, total: markers.length, records: finalRecords };
+        toolResult = { success: true, id: envelope.id, targetAgent };
+      } else if (name === 'relay_read_ledger') {
+        const records = await store.getAllRecords(args.limit);
+        const status = await store.getStatus();
+        toolResult = { count: records.length, total: status.totalSequencesAllocated, records };
       } else if (name === 'relay_request_adjudication') {
         const { claim, code, invariants, author } = args;
         const detResult = evaluateDeterministicJurisprudence(claim, code, invariants);
-        const finding = depositRecordInternal({
+        const finding = await store.deposit({
           from: 'agent:gemini-criterion-guard',
           to: author || 'agent:mcp-client',
           type: 'finding',
@@ -706,27 +537,16 @@ async function handleMcpRpc(body: any): Promise<any> {
         toolResult = { verdict: detResult.verdict, locator: finding.locator, reasoning: detResult.reasoning, biblical_principle: detResult.biblical_principle };
       } else if (name === 'relay_verify_scales') {
         const locator = args.locator;
-        const recordFile = path.join(DIRS.records, `${locator}.json`);
-        if (!fs.existsSync(recordFile)) {
+        const vResult = await store.verifyDigest(locator);
+        if (!vResult) {
           toolResult = { error: `Locator ${locator} not found or missing` };
         } else {
-          const content = JSON.parse(fs.readFileSync(recordFile, 'utf-8'));
-          const canPayload = canonicalJson(content.payload || {});
-          const computedDigest = `sha256:${sha256(canPayload)}`;
-          toolResult = {
-            locator,
-            valid: computedDigest === content.digest,
-            headerDigest: content.digest,
-            computedDigest
-          };
+          toolResult = vResult;
         }
       } else if (name === 'relay_get_status') {
-        const historyFiles = fs.existsSync(DIRS.history) ? fs.readdirSync(DIRS.history) : [];
-        const recordFiles = fs.existsSync(DIRS.records) ? fs.readdirSync(DIRS.records).filter(f => f.endsWith('.json')) : [];
+        const storeStatus = await store.getStatus();
         toolResult = {
-          totalSequences: historyFiles.length,
-          presentRecords: recordFiles.length,
-          knownMissing: Math.max(0, historyFiles.length - recordFiles.length),
+          ...storeStatus,
           spec: 'v1.0.0-PROV18-17',
           activeSSE: sseClients.size
         };
@@ -872,55 +692,24 @@ app.get('/api/mcp/config', (req, res) => {
 });
 
 // 2. Read All Records (with SPEC MUST 6 Known Missing checks)
-app.get('/api/relay/records', (req, res) => {
+app.get('/api/relay/records', async (req, res) => {
   try {
-    if (!fs.existsSync(DIRS.history)) {
-      return res.json({ records: [] });
-    }
-
-    const markers = fs.readdirSync(DIRS.history).sort();
-    const results = markers.map((marker) => {
-      const recordPath = path.join(DIRS.records, `${marker}.json`);
-      if (fs.existsSync(recordPath)) {
-        try {
-          const content = JSON.parse(fs.readFileSync(recordPath, 'utf-8'));
-          return {
-            locator: marker,
-            status: 'PRESENT',
-            envelope: content,
-          };
-        } catch (e) {
-          return {
-            locator: marker,
-            status: 'CORRUPTED',
-            error: 'Invalid JSON payload'
-          };
-        }
-      } else {
-        return {
-          locator: marker,
-          status: 'KNOWN_MISSING',
-          envelope: null,
-          note: 'Payload unlinked, monotonic marker preserved (SPEC MUST 6)'
-        };
-      }
-    });
-
-    res.json({ records: results });
+    const records = await store.getAllRecords();
+    res.json({ records });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // 3. Deposit Record into Ledger (Atomic O_EXCL + Canonical JSON)
-app.post('/api/relay/deposit', (req, res) => {
+app.post('/api/relay/deposit', async (req, res) => {
   try {
     const { from, to, type, title, payload, parent_locator, metadata } = req.body;
     if (!payload) {
       return res.status(400).json({ error: 'Payload is required' });
     }
 
-    const envelope = depositRecordInternal({
+    const envelope = await store.deposit({
       from: from || 'agent:user-ui',
       to: to || 'all',
       type: type || 'claim',
@@ -943,35 +732,24 @@ app.post('/api/relay/deposit', (req, res) => {
 });
 
 // 4. Send Message to Agent Inbox
-app.post('/api/relay/send', (req, res) => {
+app.post('/api/relay/send', async (req, res) => {
   try {
     const { targetAgent, from, type, title, payload } = req.body;
     if (!targetAgent) {
       return res.status(400).json({ error: 'targetAgent is required' });
     }
 
-    let targetDir = DIRS.inboxGemini;
-    if (targetAgent === 'claude') targetDir = DIRS.inboxClaude;
-    else if (targetAgent === 'chatgpt') targetDir = DIRS.inboxChatGPT;
-    else if (targetAgent === 'court') targetDir = DIRS.inboxCourt;
-
-    const msgId = `msg-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-    const envelope = {
-      id: msgId,
+    const envelope = await store.sendToInbox(targetAgent, {
       from: from || 'agent:user-ui',
       to: targetAgent,
       type: type || 'claim',
       title: title || 'Direct Inbox Message',
-      payload: payload || {},
-      timestamp: new Date().toISOString()
-    };
-
-    const filePath = path.join(targetDir, `${msgId}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(envelope, null, 2), 'utf-8');
+      payload: payload || {}
+    });
 
     res.json({
       success: true,
-      id: msgId,
+      id: envelope.id,
       targetAgent,
       envelope
     });
@@ -981,27 +759,14 @@ app.post('/api/relay/send', (req, res) => {
 });
 
 // 5. Get Agent Inbox
-app.get('/api/relay/inbox/:agent', (req, res) => {
+app.get('/api/relay/inbox/:agent', async (req, res) => {
   try {
     const agent = req.params.agent;
     if (!AGENT.test(agent)) {
       return res.status(400).json({ error: 'agent must be alphanumeric' });
     }
-    let targetDir = DIRS.inboxGemini;
-    if (agent === 'claude') targetDir = DIRS.inboxClaude;
-    else if (agent === 'chatgpt') targetDir = DIRS.inboxChatGPT;
-    else if (agent === 'court') targetDir = DIRS.inboxCourt;
 
-    if (!fs.existsSync(targetDir)) {
-      return res.json({ messages: [] });
-    }
-
-    const files = fs.readdirSync(targetDir).filter((f) => f.endsWith('.json'));
-    const messages = files.map((f) => {
-      const content = JSON.parse(fs.readFileSync(path.join(targetDir, f), 'utf-8'));
-      return { file: f, ...content };
-    });
-
+    const messages = await store.getInbox(agent);
     res.json({ agent, count: messages.length, messages });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1009,69 +774,34 @@ app.get('/api/relay/inbox/:agent', (req, res) => {
 });
 
 // 6. Delete Record Payload (Test SPEC MUST 6: KNOWN_MISSING)
-app.delete('/api/relay/records/:locator', (req, res) => {
+app.delete('/api/relay/records/:locator', async (req, res) => {
   try {
     const locator = req.params.locator;
     if (badLocator(locator, res)) return;
-    const recordFile = path.join(DIRS.records, `${locator}.json`);
-    const markerFile = path.join(DIRS.history, locator);
 
-    if (!fs.existsSync(markerFile)) {
-      return res.status(404).json({ error: `Sequence marker ${locator} does not exist.` });
+    const result = await store.deletePayload(locator);
+    if (!result.success && result.status === 'NOT_FOUND') {
+      return res.status(404).json({ error: result.message });
     }
 
-    if (fs.existsSync(recordFile)) {
-      fs.unlinkSync(recordFile);
-      // NOTE: marker in history/ is NEVER unlinked!
-      broadcastSSE('known_missing', {
-        locator,
-        status: 'KNOWN_MISSING',
-        note: 'Payload unlinked, monotonic marker preserved (SPEC MUST 6)'
-      });
-      res.json({
-        success: true,
-        locator,
-        status: 'KNOWN_MISSING',
-        message: `Payload for ${locator} removed. History marker retained to guarantee monotonic ordering (SPEC MUST 6).`
-      });
-    } else {
-      res.json({
-        success: true,
-        locator,
-        status: 'ALREADY_MISSING',
-        message: `${locator} was already missing its payload.`
-      });
-    }
+    res.json(result);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // 7. Verify Just Scales Digest
-app.post('/api/relay/verify/:locator', (req, res) => {
+app.post('/api/relay/verify/:locator', async (req, res) => {
   try {
     const locator = req.params.locator;
     if (badLocator(locator, res)) return;
-    const recordFile = path.join(DIRS.records, `${locator}.json`);
 
-    if (!fs.existsSync(recordFile)) {
+    const result = await store.verifyDigest(locator);
+    if (!result) {
       return res.status(404).json({ error: `Record payload for ${locator} not found.` });
     }
 
-    const content = JSON.parse(fs.readFileSync(recordFile, 'utf-8'));
-    const canPayload = canonicalJson(content.payload || {});
-    const computedDigest = `sha256:${sha256(canPayload)}`;
-    const headerDigest = content.digest;
-
-    const isValid = computedDigest === headerDigest;
-
-    res.json({
-      locator,
-      valid: isValid,
-      headerDigest,
-      computedDigest,
-      canonicalPayloadString: canPayload
-    });
+    res.json(result);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -1147,7 +877,7 @@ Respond in strict JSON format:
     }
 
     // Deposit the finding envelope directly into the Relay Store!
-    const findingEnvelope = depositRecordInternal({
+    const findingEnvelope = await store.deposit({
       from: 'agent:gemini-criterion-guard',
       to: author || 'agent:claude-code-cli',
       type: 'finding',
@@ -1189,7 +919,7 @@ app.post('/api/relay/step-triad', async (req, res) => {
     const text = proposalText || 'Предложение: кэшировать свободные слоты sequence для ускорения O_EXCL маркерных файлов';
 
     // Step 1: Claude deposits proposal (claim)
-    const claimEnvelope = depositRecordInternal({
+    const claimEnvelope = await store.deposit({
       from: 'agent:claude-code-cli',
       to: 'agent:chatgpt-adversary',
       type: 'claim',
@@ -1202,7 +932,7 @@ app.post('/api/relay/step-triad', async (req, res) => {
     });
 
     // Step 2: ChatGPT deposits adversarial challenge
-    const challengeEnvelope = depositRecordInternal({
+    const challengeEnvelope = await store.deposit({
       from: 'agent:chatgpt-adversary',
       to: 'agent:gemini-criterion-guard',
       type: 'challenge',
@@ -1229,7 +959,7 @@ Return a concise Russian verdict explaining why caching sequence slots violates 
       reasoning = aiRes.text.trim();
     }
 
-    const rulingEnvelope = depositRecordInternal({
+    const rulingEnvelope = await store.deposit({
       from: 'agent:gemini-criterion-guard',
       to: 'all',
       type: 'ruling',
@@ -1257,27 +987,9 @@ Return a concise Russian verdict explaining why caching sequence slots violates 
 });
 
 // 10. Reset Store to Clean Initial State
-app.post('/api/relay/reset', (req, res) => {
+app.post('/api/relay/reset', async (req, res) => {
   try {
-    // Clear directories
-    Object.values(DIRS).forEach((dir) => {
-      if (fs.existsSync(dir)) {
-        const files = fs.readdirSync(dir);
-        files.forEach((f) => {
-          try {
-            fs.unlinkSync(path.join(dir, f));
-          } catch (e) {}
-        });
-      }
-    });
-
-    seedInitialRecords();
-
-    broadcastSSE('store_reset', {
-      timestamp: new Date().toISOString(),
-      message: 'Store reset to initial state with genesis records.'
-    });
-
+    await store.reset();
     res.json({ success: true, message: 'Relay store reset and seeded successfully.' });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1417,7 +1129,7 @@ app.post('/api/relay/agent-exec', async (req, res) => {
     }
 
     // Seal and deposit the envelope into the O_EXCL Ledger
-    const envelope = depositRecordInternal({
+    const envelope = await store.deposit({
       from: `agent:${targetAgent}`,
       to: 'all',
       type: envelopeType,
@@ -1445,7 +1157,7 @@ app.post('/api/relay/agent-exec', async (req, res) => {
 
 // Start Server and Vite Middleware
 async function start() {
-  initStore();
+  await store.init();
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
@@ -1461,9 +1173,10 @@ async function start() {
     });
   }
 
+  const status = await store.getStatus();
   app.listen(PORT, HOST, () => {
     console.log(`[Relay Engine] Server listening on http://0.0.0.0:${PORT}`);
-    console.log(`[Relay Engine] Store initialized at ${STORE_ROOT}`);
+    console.log(`[Relay Engine] Store initialized (Type: ${status.storeType}, Root: ${status.storeRoot || 'N/A'})`);
   });
 }
 

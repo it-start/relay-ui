@@ -2,5 +2,7 @@
   "name": "Agent Relay & Adjudication Workbench",
   "description": "Interactive multi-agent relay protocol simulator, adjudication state machine, envelope inspector, and reference implementations.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
