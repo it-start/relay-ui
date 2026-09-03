@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Markdown from 'react-markdown';
 import { 
   Send, Bot, Sparkles, User, Scale, ShieldCheck, 
-  Terminal, RefreshCw, Paperclip, ChevronDown, Check,
+  Terminal, RefreshCw, Paperclip, ChevronDown, ChevronRight, Check,
   Clock, Hash, ArrowDownRight, Layers, Play, Radio,
   MessageSquare, Zap, Cpu, AlertCircle, Copy, Gavel, HelpCircle, Code,
-  Maximize2, Minimize2, Filter
+  Maximize2, Minimize2, Filter, CornerDownRight
 } from 'lucide-react';
 
 export interface AgentChatInterfaceProps {
@@ -153,6 +153,9 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
   const [activeAdjudicatingId, setActiveAdjudicatingId] = useState<string | null>(null);
 
   const [rawViewMsgIds, setRawViewMsgIds] = useState<Set<string>>(new Set());
+  const [expandedCriteriaIds, setExpandedCriteriaIds] = useState<Set<string>>(new Set());
+  const [hoveredLocator, setHoveredLocator] = useState<string | null>(null);
+  const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
 
   const toggleRawView = (id: string) => {
     setRawViewMsgIds((prev) => {
@@ -163,30 +166,83 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
     });
   };
 
+  const toggleCriteriaExpand = (id: string) => {
+    setExpandedCriteriaIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Map locators to message objects for instant jump & relation lookups
+  const locatorToMessageMap = useMemo(() => {
+    const map = new Map<string, ChatMessage>();
+    for (const m of messages) {
+      if (m.locator) map.set(m.locator, m);
+    }
+    return map;
+  }, [messages]);
+
+  // Map of parentLocator -> children replies for thread navigation
+  const repliesMap = useMemo(() => {
+    const map = new Map<string, ChatMessage[]>();
+    for (const m of messages) {
+      if (m.parentLocator) {
+        const list = map.get(m.parentLocator) || [];
+        list.push(m);
+        map.set(m.parentLocator, list);
+      }
+    }
+    return map;
+  }, [messages]);
+
+  const scrollToMessage = (locatorOrId: string) => {
+    let target = locatorToMessageMap.get(locatorOrId);
+    if (!target) {
+      target = messages.find(m => m.id === locatorOrId);
+    }
+    if (target) {
+      const el = document.getElementById(`msg-${target.id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setHighlightedMsgId(target.id);
+        setTimeout(() => setHighlightedMsgId(null), 2400);
+      }
+    }
+  };
 
   const filteredMessages = useMemo(() => {
     if (filterSender === 'all') return messages;
     return messages.filter((m) => m.sender === filterSender);
   }, [messages, filterSender]);
 
-  // Helper to highlight inline citations like relay-0774 in text
+  // Helper to highlight inline citations like relay-0774 in text with click-to-jump
   const renderTextWithLocators = (text: string) => {
     if (typeof text !== 'string') return text;
     const parts = text.split(/(relay-\d{4})/g);
     if (parts.length === 1) return text;
     return parts.map((part, idx) => {
       if (/^relay-\d{4}$/.test(part)) {
+        const hasTarget = locatorToMessageMap.has(part);
         return (
           <button
             key={idx}
             type="button"
-            onClick={() => setParentLocator(part)}
-            title={`Установить ${part} как родительский локатор`}
-            className="inline-flex items-center px-1.5 py-0.2 mx-0.5 rounded text-[10px] font-mono font-bold bg-indigo-950 text-indigo-300 border border-indigo-700/60 hover:bg-indigo-900 hover:text-indigo-100 transition cursor-pointer"
+            onClick={() => {
+              if (hasTarget) scrollToMessage(part);
+              else setParentLocator(part);
+            }}
+            onMouseEnter={() => setHoveredLocator(part)}
+            onMouseLeave={() => setHoveredLocator(null)}
+            title={hasTarget ? `Клик: перейти к ${part} · Наведите для подсветки` : `Установить ${part} как ответ`}
+            className="inline-flex items-center px-1.5 py-0.2 mx-0.5 rounded text-[10px] font-mono font-bold bg-indigo-950 text-indigo-300 border border-indigo-700/60 hover:bg-indigo-900 hover:text-indigo-100 hover:border-indigo-400 transition cursor-pointer shadow-sm"
           >
-            {part}
+            <span>{part}</span>
+            {hasTarget && <CornerDownRight className="w-2.5 h-2.5 ml-1 opacity-70" />}
           </button>
         );
       }
@@ -663,11 +719,21 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
               const cfg = AGENT_CONFIGS[msg.sender] || AGENT_CONFIGS.unknown;
               const Icon = cfg.icon;
               const isHuman = msg.sender === 'human';
+              const isHoveredTarget = hoveredLocator === msg.locator;
+              const isTemporarilyHighlighted = highlightedMsgId === msg.id;
+              const isCriteriaExpanded = expandedCriteriaIds.has(msg.id);
+              const replies = msg.locator ? (repliesMap.get(msg.locator) || []) : [];
+              const parentMsg = msg.parentLocator ? locatorToMessageMap.get(msg.parentLocator) : null;
 
               return (
                 <div
                   key={msg.id}
-                  className={`flex items-start gap-3 group w-full ${
+                  id={`msg-${msg.id}`}
+                  className={`flex items-start gap-3 group w-full transition-all duration-300 rounded-2xl p-1 -m-1 ${
+                    isHoveredTarget || isTemporarilyHighlighted 
+                      ? 'ring-2 ring-indigo-500 bg-indigo-950/20 shadow-lg shadow-indigo-500/10' 
+                      : ''
+                  } ${
                     isHuman ? 'flex-row-reverse' : ''
                   }`}
                 >
@@ -715,7 +781,7 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
                           <button
                             type="button"
                             onClick={() => setParentLocator(msg.locator || '')}
-                            title="Ответить на этот локатор"
+                            title={`Локатор: ${msg.locator}. Кликните для ответа на этот Акт.`}
                             className="text-indigo-400 hover:text-indigo-200 font-bold bg-indigo-950/60 px-1.5 py-0.2 rounded border border-indigo-800/60 hover:border-indigo-600 transition cursor-pointer"
                           >
                             {msg.locator}
@@ -799,33 +865,102 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
                       </div>
                     )}
 
-                    {/* Criteria Scores Box for Court Rulings */}
+                    {/* Collapsible Criteria & Reasoning Accordion for Court / Verification */}
                     {msg.sender === 'court' && msg.rawPayload?.criteria && (
-                      <div className="mt-2.5 p-2.5 rounded-xl bg-purple-950/60 border border-purple-800/50 space-y-1.5 text-[11px]">
-                        <div className="font-semibold text-purple-200 flex items-center justify-between">
-                          <span>Оценка критериев Суда (Притчи 18:17):</span>
-                          <span className="font-mono text-emerald-400 font-bold">{msg.rawPayload.criteria.score || 95}/100</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-1 text-[10px] text-purple-300 font-mono">
-                          <div>⚖️ Каноничность (JCS): {msg.rawPayload.criteria.jcs_canonical ? '100%' : '50%'}</div>
-                          <div>🔒 Атомарность O_EXCL: {msg.rawPayload.criteria.o_excl_verified ? 'PASS' : 'FAIL'}</div>
-                          <div>⏱️ Монотонность HLC: {msg.rawPayload.criteria.hlc_monotonic ? 'PASS' : 'FAIL'}</div>
-                          <div>🗑️ SPEC MUST 6: {msg.rawPayload.criteria.known_missing_retained ? 'PASS' : 'FAIL'}</div>
-                        </div>
+                      <div className="mt-2.5 rounded-xl border border-purple-800/50 bg-purple-950/40 overflow-hidden text-[11px] transition">
+                        <button
+                          type="button"
+                          onClick={() => toggleCriteriaExpand(msg.id)}
+                          className="w-full px-2.5 py-1.5 flex items-center justify-between text-left hover:bg-purple-900/30 transition cursor-pointer text-purple-200 font-semibold"
+                        >
+                          <div className="flex items-center space-x-1.5 truncate">
+                            {isCriteriaExpanded ? (
+                              <ChevronDown className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                            ) : (
+                              <ChevronRight className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                            )}
+                            <span className="truncate">⚖️ Судебное заключение:</span>
+                            <span className="font-mono text-emerald-400 font-bold bg-emerald-950/80 px-1.5 py-0.2 rounded border border-emerald-800/60">
+                              {msg.rawPayload.criteria.score || 95}/100
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-purple-400 font-mono shrink-0 ml-2">
+                            {isCriteriaExpanded ? 'Свернуть' : 'Детали критериев ▾'}
+                          </span>
+                        </button>
+
+                        {isCriteriaExpanded && (
+                          <div className="p-2.5 pt-1 border-t border-purple-800/40 bg-purple-950/60 space-y-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[10px] text-purple-200 font-mono">
+                              <div className="p-1.5 rounded bg-purple-950/80 border border-purple-800/40 flex items-center justify-between">
+                                <span>⚖️ Каноничность (JCS):</span>
+                                <span className="font-bold text-emerald-400">{msg.rawPayload.criteria.jcs_canonical ? '100%' : '50%'}</span>
+                              </div>
+                              <div className="p-1.5 rounded bg-purple-950/80 border border-purple-800/40 flex items-center justify-between">
+                                <span>🔒 Атомарность O_EXCL:</span>
+                                <span className="font-bold text-emerald-400">{msg.rawPayload.criteria.o_excl_verified ? 'PASS' : 'FAIL'}</span>
+                              </div>
+                              <div className="p-1.5 rounded bg-purple-950/80 border border-purple-800/40 flex items-center justify-between">
+                                <span>⏱️ Монотонность HLC:</span>
+                                <span className="font-bold text-emerald-400">{msg.rawPayload.criteria.hlc_monotonic ? 'PASS' : 'FAIL'}</span>
+                              </div>
+                              <div className="p-1.5 rounded bg-purple-950/80 border border-purple-800/40 flex items-center justify-between">
+                                <span>🗑️ SPEC MUST 6:</span>
+                                <span className="font-bold text-emerald-400">{msg.rawPayload.criteria.known_missing_retained ? 'PASS' : 'FAIL'}</span>
+                              </div>
+                            </div>
+                            <div className="text-[10px] text-purple-300/80 italic font-mono bg-purple-950/90 p-1.5 rounded border border-purple-900/60">
+                              «Первый в тяжбе своей прав, пока не придет соперник и не исследует его» (Притчи 18:17). Инварианты подтверждены.
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
-                    {/* Parent Locator Reply Citation */}
+                    {/* Parent Locator Reply Citation with Jump & Hover Glow */}
                     {msg.parentLocator && (
                       <div className="mt-2 pt-2 border-t border-slate-800/50 flex items-center space-x-1.5 text-[11px] text-slate-400 flex-wrap">
                         <ArrowDownRight className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
                         <span>В ответ на:</span>
                         <button 
-                          onClick={() => setParentLocator(msg.parentLocator || '')}
-                          className="font-mono text-indigo-300 hover:underline bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800"
+                          type="button"
+                          onClick={() => {
+                            if (parentMsg) scrollToMessage(msg.parentLocator!);
+                            else setParentLocator(msg.parentLocator || '');
+                          }}
+                          onMouseEnter={() => setHoveredLocator(msg.parentLocator || null)}
+                          onMouseLeave={() => setHoveredLocator(null)}
+                          title={parentMsg ? `Перейти к исходному акту ${msg.parentLocator} (${parentMsg.sender})` : `Установить ответ`}
+                          className="font-mono text-indigo-300 hover:text-indigo-100 hover:underline bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800 hover:border-indigo-600 transition flex items-center space-x-1 cursor-pointer"
                         >
-                          {msg.parentLocator}
+                          <span>{msg.parentLocator}</span>
+                          {parentMsg && (
+                            <span className="text-[9px] text-indigo-400 opacity-80">({parentMsg.sender})</span>
+                          )}
                         </button>
+                      </div>
+                    )}
+
+                    {/* Replies count / Thread Branch Indicator */}
+                    {replies.length > 0 && (
+                      <div className="mt-1.5 flex items-center space-x-1 text-[10px] text-slate-400">
+                        <CornerDownRight className="w-3 h-3 text-emerald-400 shrink-0" />
+                        <span className="text-slate-500">Ответы ({replies.length}):</span>
+                        <div className="flex items-center space-x-1 flex-wrap">
+                          {replies.slice(0, 3).map((reply) => (
+                            <button
+                              key={reply.id}
+                              type="button"
+                              onClick={() => scrollToMessage(reply.id)}
+                              onMouseEnter={() => setHoveredLocator(reply.locator || null)}
+                              onMouseLeave={() => setHoveredLocator(null)}
+                              className="font-mono text-[9px] text-emerald-400 hover:underline bg-emerald-950/40 px-1 py-0.2 rounded border border-emerald-800/40 hover:border-emerald-500 transition cursor-pointer"
+                              title={`Перейти к ответу от ${reply.sender}`}
+                            >
+                              {reply.locator || reply.sender}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     )}
 
