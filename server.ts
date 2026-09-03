@@ -119,8 +119,8 @@ async function generateWithFallback(prompt: string, jsonMode: boolean = true): P
   const client = getGeminiClient();
   if (!client) return null;
 
-  // Candidate models conforming to SKILL.md
-  const candidateModels = ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+  // Candidate models conforming to SKILL.md (gemini-3.8-flash, gemini-flash-latest, gemini-3.1-flash-lite)
+  const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
 
   for (const model of candidateModels) {
     // Attempt up to 2 tries per model with quick backoff
@@ -142,7 +142,7 @@ async function generateWithFallback(prompt: string, jsonMode: boolean = true): P
                             err.status === 'UNAVAILABLE' ||
                             err.status === 503;
         
-        console.warn(`[Gemini API] Attempt ${attempt + 1} with model ${model} failed (${isTransient ? 'Transient 503 Demand' : err.message}).`);
+        console.info(`[Gemini API] Model ${model} attempt ${attempt + 1}: ${isTransient ? '503 High Demand (trying next)' : (err.message || 'error')}`);
         
         if (isTransient && attempt === 0) {
           // Wait 350ms before retry
@@ -327,7 +327,7 @@ app.get('/api/relay/status', async (req, res) => {
         mistral: mistralKeyPresent ? 'LIVE_KEY' : 'STRUCTURED_FALLBACK',
       },
       geminiAvailable: apiKeyPresent,
-      model: 'gemini-3.7-flash',
+      model: 'gemini-3.8-flash',
       specVersion: 'v1.0.0-PROV18-17'
     });
   } catch (error: any) {

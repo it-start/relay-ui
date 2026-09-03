@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import Markdown from 'react-markdown';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { 
   Send, Bot, Sparkles, User, Scale, ShieldCheck, 
   Terminal, RefreshCw, Paperclip, ChevronDown, ChevronRight, Check,
@@ -7,27 +7,12 @@ import {
   MessageSquare, Zap, Cpu, AlertCircle, Copy, Gavel, HelpCircle, Code,
   Maximize2, Minimize2, Filter, CornerDownRight
 } from 'lucide-react';
+import { ChatMessage, AGENT_CONFIGS } from './chatTypes';
+import { ChatMessageCard } from './ChatMessageCard';
 
 export interface AgentChatInterfaceProps {
   isFocusMode?: boolean;
   onToggleFocusMode?: () => void;
-}
-
-interface ChatMessage {
-  id: string;
-  seq?: number;
-  locator?: string;
-  sender: 'human' | 'claude' | 'chatgpt' | 'gemini' | 'mistral' | 'court' | 'unknown';
-  senderLabel: string;
-  type: 'claim' | 'challenge' | 'finding' | 'ruling' | 'attestation' | 'system';
-  title?: string;
-  text: string;
-  timestamp: string;
-  hlc?: string;
-  digest?: string;
-  parentLocator?: string;
-  status?: 'delivered' | 'pending' | 'adjudicated';
-  rawPayload?: any;
 }
 
 /**
@@ -58,84 +43,6 @@ function resolveSender(from: string): { sender: ChatMessage['sender']; label: st
   return { sender: 'unknown', label: from || 'Unknown sender' };
 }
 
-const AGENT_CONFIGS: Record<string, {
-  name: string;
-  shortName: string;
-  avatarBg: string;
-  badgeBg: string;
-  textColor: string;
-  icon: any;
-  roleDescription: string;
-}> = {
-  human: {
-    name: 'Вы (Архитектор)',
-    shortName: 'Архитектор',
-    avatarBg: 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40',
-    badgeBg: 'bg-emerald-950/60 text-emerald-400 border-emerald-800',
-    textColor: 'text-emerald-300',
-    icon: User,
-    roleDescription: 'Человек-архитектор и постановщик задач'
-  },
-  // A sender this UI does not recognise is rendered as itself. It used to fall
-  // back to `human`, which showed records written by someone else as written by
-  // the person reading them — 230 of 694 in the store this was first pointed at.
-  // A default that names a specific author is a claim; this one is not.
-  unknown: {
-    name: 'Unknown sender',
-    shortName: 'Unknown',
-    avatarBg: 'bg-slate-600/20 text-slate-400 border-slate-500/40',
-    badgeBg: 'bg-slate-950/60 text-slate-400 border-slate-800',
-    textColor: 'text-slate-300',
-    icon: HelpCircle,
-    roleDescription: 'Отправитель, не описанный в этом интерфейсе'
-  },
-  claude: {
-    name: 'Claude Code (Sonnet 3.5)',
-    shortName: 'Claude',
-    avatarBg: 'bg-amber-600/20 text-amber-400 border-amber-500/40',
-    badgeBg: 'bg-amber-950/60 text-amber-300 border-amber-800',
-    textColor: 'text-amber-300',
-    icon: Terminal,
-    roleDescription: 'Инициатор, генератор распределенных схем и кода'
-  },
-  chatgpt: {
-    name: 'ChatGPT (GPT-4o Adversary)',
-    shortName: 'ChatGPT',
-    avatarBg: 'bg-teal-600/20 text-teal-400 border-teal-500/40',
-    badgeBg: 'bg-teal-950/60 text-teal-300 border-teal-800',
-    textColor: 'text-teal-300',
-    icon: Zap,
-    roleDescription: 'Состязательный оппонент (Притчи 18:17, поиск race conditions)'
-  },
-  mistral: {
-    name: 'Mistral (Codestral)',
-    shortName: 'Mistral',
-    avatarBg: 'bg-orange-600/20 text-orange-400 border-orange-500/40',
-    badgeBg: 'bg-orange-950/60 text-orange-300 border-orange-800',
-    textColor: 'text-orange-300',
-    icon: Cpu,
-    roleDescription: 'Инвариантный верификатор и стресс-тестировщик'
-  },
-  gemini: {
-    name: 'Gemini (Criterion Guard)',
-    shortName: 'Gemini',
-    avatarBg: 'bg-indigo-600/20 text-indigo-400 border-indigo-500/40',
-    badgeBg: 'bg-indigo-950/60 text-indigo-300 border-indigo-800',
-    textColor: 'text-indigo-300',
-    icon: Sparkles,
-    roleDescription: 'Хранитель критериев, аудит SPEC MUST 1-8 и HLC'
-  },
-  court: {
-    name: 'Суд Притчей 18:17 (Adjudication)',
-    shortName: 'Суд',
-    avatarBg: 'bg-purple-600/20 text-purple-400 border-purple-500/40',
-    badgeBg: 'bg-purple-950/60 text-purple-300 border-purple-800',
-    textColor: 'text-purple-300',
-    icon: Scale,
-    roleDescription: 'Судебное постановление и окончательный вердикт'
-  }
-};
-
 export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
   isFocusMode = false,
   onToggleFocusMode
@@ -154,29 +61,42 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
 
   const [rawViewMsgIds, setRawViewMsgIds] = useState<Set<string>>(new Set());
   const [expandedCriteriaIds, setExpandedCriteriaIds] = useState<Set<string>>(new Set());
-  const [hoveredLocator, setHoveredLocator] = useState<string | null>(null);
   const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
 
-  const toggleRawView = (id: string) => {
+  const toggleRawView = useCallback((id: string) => {
     setRawViewMsgIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
+  }, []);
 
-  const toggleCriteriaExpand = (id: string) => {
+  const toggleCriteriaExpand = useCallback((id: string) => {
     setExpandedCriteriaIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
+  }, []);
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Filter messages by sender
+  const filteredMessages = useMemo(() => {
+    if (filterSender === 'all') return messages;
+    return messages.filter((m) => m.sender === filterSender);
+  }, [messages, filterSender]);
+
+  // High-performance virtualization for 800+ messages
+  const rowVirtualizer = useVirtualizer({
+    count: filteredMessages.length,
+    getScrollElement: () => chatContainerRef.current,
+    estimateSize: () => 140,
+    overscan: 8,
+  });
 
   // Map locators to message objects for instant jump & relation lookups
   const locatorToMessageMap = useMemo(() => {
@@ -186,6 +106,10 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
     }
     return map;
   }, [messages]);
+
+  const hasLocator = useCallback((locator: string) => {
+    return locatorToMessageMap.has(locator);
+  }, [locatorToMessageMap]);
 
   // Map of parentLocator -> children replies for thread navigation
   const repliesMap = useMemo(() => {
@@ -200,61 +124,45 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
     return map;
   }, [messages]);
 
-  const scrollToMessage = (locatorOrId: string) => {
-    let target = locatorToMessageMap.get(locatorOrId);
-    if (!target) {
-      target = messages.find(m => m.id === locatorOrId);
-    }
-    if (target) {
-      const el = document.getElementById(`msg-${target.id}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        setHighlightedMsgId(target.id);
-        setTimeout(() => setHighlightedMsgId(null), 2400);
-      }
-    }
-  };
-
-  const filteredMessages = useMemo(() => {
-    if (filterSender === 'all') return messages;
-    return messages.filter((m) => m.sender === filterSender);
-  }, [messages, filterSender]);
-
-  // Helper to highlight inline citations like relay-0774 in text with click-to-jump
-  const renderTextWithLocators = (text: string) => {
-    if (typeof text !== 'string') return text;
-    const parts = text.split(/(relay-\d{4})/g);
-    if (parts.length === 1) return text;
-    return parts.map((part, idx) => {
-      if (/^relay-\d{4}$/.test(part)) {
-        const hasTarget = locatorToMessageMap.has(part);
-        return (
-          <button
-            key={idx}
-            type="button"
-            onClick={() => {
-              if (hasTarget) scrollToMessage(part);
-              else setParentLocator(part);
-            }}
-            onMouseEnter={() => setHoveredLocator(part)}
-            onMouseLeave={() => setHoveredLocator(null)}
-            title={hasTarget ? `Клик: перейти к ${part} · Наведите для подсветки` : `Установить ${part} как ответ`}
-            className="inline-flex items-center px-1.5 py-0.2 mx-0.5 rounded text-[10px] font-mono font-bold bg-indigo-950 text-indigo-300 border border-indigo-700/60 hover:bg-indigo-900 hover:text-indigo-100 hover:border-indigo-400 transition cursor-pointer shadow-sm"
-          >
-            <span>{part}</span>
-            {hasTarget && <CornerDownRight className="w-2.5 h-2.5 ml-1 opacity-70" />}
-          </button>
-        );
-      }
-      return part;
+  // Zero-react-render hover highlight using direct DOM styling (prevents re-rendering 800+ cards on hover)
+  const handleLocatorHover = useCallback((locator: string | null) => {
+    if (!chatContainerRef.current) return;
+    const prev = chatContainerRef.current.querySelectorAll('.locator-hovered-highlight');
+    prev.forEach((el) => {
+      el.classList.remove(
+        'locator-hovered-highlight',
+        'ring-2',
+        'ring-indigo-500',
+        'bg-indigo-950/25',
+        'shadow-lg',
+        'shadow-indigo-500/10'
+      );
     });
-  };
+    if (locator) {
+      const targets = chatContainerRef.current.querySelectorAll(`[data-locator="${locator}"]`);
+      targets.forEach((el) => {
+        el.classList.add(
+          'locator-hovered-highlight',
+          'ring-2',
+          'ring-indigo-500',
+          'bg-indigo-950/25',
+          'shadow-lg',
+          'shadow-indigo-500/10'
+        );
+      });
+    }
+  }, []);
 
-  const formatChildrenWithLocators = (node: React.ReactNode): React.ReactNode => {
-    if (typeof node === 'string') return renderTextWithLocators(node);
-    if (Array.isArray(node)) return React.Children.map(node, formatChildrenWithLocators);
-    return node;
-  };
+  const scrollToMessage = useCallback((locatorOrId: string) => {
+    const targetIdx = filteredMessages.findIndex(
+      (m) => m.locator === locatorOrId || m.id === locatorOrId
+    );
+    if (targetIdx !== -1) {
+      rowVirtualizer.scrollToIndex(targetIdx, { align: 'center', behavior: 'smooth' });
+      setHighlightedMsgId(filteredMessages[targetIdx].id);
+      setTimeout(() => setHighlightedMsgId(null), 2400);
+    }
+  }, [filteredMessages, rowVirtualizer]);
 
   // Load existing records on mount and map to chat messages
   const loadInitialChatFromLedger = async () => {
@@ -352,10 +260,10 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
 
   // Scroll to bottom when messages update
   useEffect(() => {
-    if (autoScroll && chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    if (autoScroll && filteredMessages.length > 0) {
+      rowVirtualizer.scrollToIndex(filteredMessages.length - 1, { align: 'end' });
     }
-  }, [messages, autoScroll]);
+  }, [filteredMessages.length, autoScroll, rowVirtualizer]);
 
   // Send message from Architect or invoke specific LLM Agent
   const handleSendMessage = async () => {
@@ -639,8 +547,11 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
               <span className={`w-1.5 h-1.5 rounded-full ${sseConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
               <span>{sseConnected ? 'Live' : 'Connect'}</span>
             </span>
-            <span className="text-[10px] font-mono text-slate-500 hidden md:inline">
-              {messages.length} актов
+            <span 
+              className="text-[10px] font-mono text-indigo-300 bg-indigo-950/60 border border-indigo-800/40 px-1.5 py-0.5 rounded hidden md:inline"
+              title={`Виртуализация активна: из ${messages.length} актов в DOM рендерятся только видимые`}
+            >
+              {filteredMessages.length} актов • ⚡ Виртуализация
             </span>
           </div>
         </div>
@@ -762,313 +673,49 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
               </div>
             </div>
           ) : (
-            filteredMessages.map((msg) => {
-              const cfg = AGENT_CONFIGS[msg.sender] || AGENT_CONFIGS.unknown;
-              const Icon = cfg.icon;
-              const isHuman = msg.sender === 'human';
-              const isHoveredTarget = hoveredLocator === msg.locator;
-              const isTemporarilyHighlighted = highlightedMsgId === msg.id;
-              const isCriteriaExpanded = expandedCriteriaIds.has(msg.id);
-              const replies = msg.locator ? (repliesMap.get(msg.locator) || []) : [];
-              const parentMsg = msg.parentLocator ? locatorToMessageMap.get(msg.parentLocator) : null;
+            <div
+              className="w-full relative"
+              style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+            >
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const msg = filteredMessages[virtualRow.index];
+                const replies = msg.locator ? (repliesMap.get(msg.locator) || []) : [];
+                const parentMsg = msg.parentLocator ? (locatorToMessageMap.get(msg.parentLocator) || null) : null;
 
-              return (
-                <div
-                  key={msg.id}
-                  id={`msg-${msg.id}`}
-                  className={`flex items-start gap-3 group w-full transition-all duration-300 rounded-2xl p-1 -m-1 ${
-                    isHoveredTarget || isTemporarilyHighlighted 
-                      ? 'ring-2 ring-indigo-500 bg-indigo-950/20 shadow-lg shadow-indigo-500/10' 
-                      : ''
-                  } ${
-                    isHuman ? 'flex-row-reverse' : ''
-                  }`}
-                >
-                  {/* Avatar */}
-                  <div className={`w-8 h-8 rounded-xl border flex items-center justify-center shrink-0 ${cfg.avatarBg} shadow-sm mt-0.5`}>
-                    <Icon className="w-4 h-4" />
+                return (
+                  <div
+                    key={virtualRow.key}
+                    ref={rowVirtualizer.measureElement}
+                    data-index={virtualRow.index}
+                    className="absolute top-0 left-0 w-full pb-3 sm:pb-4"
+                    style={{
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    <ChatMessageCard
+                      msg={msg}
+                      isHuman={msg.sender === "human"}
+                      isTemporarilyHighlighted={highlightedMsgId === msg.id}
+                      isCriteriaExpanded={expandedCriteriaIds.has(msg.id)}
+                      isRawView={rawViewMsgIds.has(msg.id)}
+                      isCopied={copiedId === msg.id}
+                      isSubmitting={isSubmitting}
+                      parentMsg={parentMsg}
+                      replies={replies}
+                      hasLocator={hasLocator}
+                      onToggleRawView={toggleRawView}
+                      onToggleCriteriaExpand={toggleCriteriaExpand}
+                      onSetParentLocator={setParentLocator}
+                      onScrollToMessage={scrollToMessage}
+                      onLocatorHover={handleLocatorHover}
+                      onLaunchTriad={handleLaunchTriadOnMessage}
+                      onLaunchCourt={handleLaunchCourtOnMessage}
+                      onCopyToClipboard={copyToClipboard}
+                    />
                   </div>
-
-                  {/* Message Bubble */}
-                  <div className={`w-full max-w-2xl sm:max-w-3xl rounded-2xl p-3.5 sm:p-4.5 border transition-all ${
-                    isHuman 
-                      ? 'bg-emerald-950/20 border-emerald-800/40 text-slate-100 rounded-tr-sm ml-auto' 
-                      : msg.sender === 'court'
-                      ? 'bg-purple-950/20 border-purple-800/50 text-slate-100 rounded-tl-sm'
-                      : 'bg-slate-900/90 border-slate-800/80 text-slate-100 rounded-tl-sm hover:border-slate-700/80'
-                  }`}>
-                    {/* Header info row */}
-                    <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-slate-800/60 flex-wrap">
-                      <div className="flex items-center space-x-2 min-w-0">
-                        <span className={`text-xs font-bold truncate ${cfg.textColor}`}>
-                          {msg.sender === 'unknown' ? (msg.senderLabel || cfg.name) : cfg.name}
-                        </span>
-                        <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono uppercase font-semibold border ${cfg.badgeBg} shrink-0`}>
-                          {msg.type}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center space-x-1.5 text-[10px] font-mono text-slate-400 shrink-0 ml-auto">
-                        {msg.rawPayload !== undefined && (
-                          <button
-                            type="button"
-                            onClick={() => toggleRawView(msg.id)}
-                            className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition flex items-center space-x-1 cursor-pointer ${
-                              rawViewMsgIds.has(msg.id)
-                                ? 'bg-indigo-900/60 text-indigo-200 border border-indigo-700/60'
-                                : 'bg-slate-950/60 text-slate-400 hover:text-slate-200 border border-slate-800'
-                            }`}
-                            title={rawViewMsgIds.has(msg.id) ? "Показать форматированный текст" : "Показать исходный JSON payload"}
-                          >
-                            <Code className="w-2.5 h-2.5" />
-                            <span>{rawViewMsgIds.has(msg.id) ? 'PAYLOAD' : 'JSON'}</span>
-                          </button>
-                        )}
-                        {msg.locator && (
-                          <button
-                            type="button"
-                            onClick={() => setParentLocator(msg.locator || '')}
-                            title={`Локатор: ${msg.locator}. Кликните для ответа на этот Акт.`}
-                            className="text-indigo-400 hover:text-indigo-200 font-bold bg-indigo-950/60 px-1.5 py-0.2 rounded border border-indigo-800/60 hover:border-indigo-600 transition cursor-pointer"
-                          >
-                            {msg.locator}
-                          </button>
-                        )}
-                        <span>{msg.timestamp}</span>
-                      </div>
-                    </div>
-
-                    {/* Title if present */}
-                    {msg.title && (
-                      <div className="text-xs font-semibold text-slate-200 mb-1.5">
-                        {msg.title}
-                      </div>
-                    )}
-
-                    {/* Body Content */}
-                    {rawViewMsgIds.has(msg.id) ? (
-                      <div className="bg-slate-950/90 rounded-lg p-2.5 border border-slate-800 font-mono text-[11px] text-emerald-300 overflow-x-auto my-1">
-                        <pre>{JSON.stringify(msg.rawPayload || msg.text, null, 2)}</pre>
-                      </div>
-                    ) : (
-                      <div className="text-xs sm:text-sm text-slate-200 leading-relaxed font-sans break-words space-y-1.5">
-                        <Markdown
-                          components={{
-                            p: ({ children }) => (
-                              <p className="mb-2 last:mb-0 leading-relaxed text-slate-300 whitespace-pre-wrap">
-                                {formatChildrenWithLocators(children)}
-                              </p>
-                            ),
-                            h1: ({ children }) => (
-                              <h1 className="text-sm font-bold text-slate-100 mt-3 mb-1.5 border-b border-slate-800 pb-1">
-                                {formatChildrenWithLocators(children)}
-                              </h1>
-                            ),
-                            h2: ({ children }) => (
-                              <h2 className="text-xs font-bold text-slate-100 mt-2.5 mb-1">
-                                {formatChildrenWithLocators(children)}
-                              </h2>
-                            ),
-                            h3: ({ children }) => (
-                              <h3 className="text-xs font-semibold text-slate-200 mt-2 mb-1">
-                                {formatChildrenWithLocators(children)}
-                              </h3>
-                            ),
-                            ul: ({ children }) => (
-                              <ul className="list-disc pl-4 mb-2 space-y-1 text-slate-300">
-                                {children}
-                              </ul>
-                            ),
-                            ol: ({ children }) => (
-                              <ol className="list-decimal pl-4 mb-2 space-y-1 text-slate-300">
-                                {children}
-                              </ol>
-                            ),
-                            li: ({ children }) => (
-                              <li className="leading-relaxed">
-                                {formatChildrenWithLocators(children)}
-                              </li>
-                            ),
-                            blockquote: ({ children }) => (
-                              <blockquote className="border-l-2 border-indigo-500/60 pl-3 my-2 text-slate-400 italic bg-slate-950/40 py-1.5 rounded-r">
-                                {formatChildrenWithLocators(children)}
-                              </blockquote>
-                            ),
-                            code: ({ inline, children, ...props }: any) => {
-                              return inline ? (
-                                <code className="bg-slate-950 px-1.5 py-0.5 rounded text-[11px] font-mono text-indigo-300 border border-slate-800/80" {...props}>
-                                  {children}
-                                </code>
-                              ) : (
-                                <pre className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-[11px] font-mono text-emerald-300 overflow-x-auto my-2">
-                                  <code>{children}</code>
-                                </pre>
-                              );
-                            },
-                          }}
-                        >
-                          {msg.text}
-                        </Markdown>
-                      </div>
-                    )}
-
-                    {/* Collapsible Criteria & Reasoning Accordion for Court / Verification */}
-                    {msg.sender === 'court' && msg.rawPayload?.criteria && (
-                      <div className="mt-2.5 rounded-xl border border-purple-800/50 bg-purple-950/40 overflow-hidden text-[11px] transition">
-                        <button
-                          type="button"
-                          onClick={() => toggleCriteriaExpand(msg.id)}
-                          className="w-full px-2.5 py-1.5 flex items-center justify-between text-left hover:bg-purple-900/30 transition cursor-pointer text-purple-200 font-semibold"
-                        >
-                          <div className="flex items-center space-x-1.5 truncate">
-                            {isCriteriaExpanded ? (
-                              <ChevronDown className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                            ) : (
-                              <ChevronRight className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                            )}
-                            <span className="truncate">⚖️ Судебное заключение:</span>
-                            <span className="font-mono text-emerald-400 font-bold bg-emerald-950/80 px-1.5 py-0.2 rounded border border-emerald-800/60">
-                              {msg.rawPayload.criteria.score || 95}/100
-                            </span>
-                          </div>
-                          <span className="text-[10px] text-purple-400 font-mono shrink-0 ml-2">
-                            {isCriteriaExpanded ? 'Свернуть' : 'Детали критериев ▾'}
-                          </span>
-                        </button>
-
-                        {isCriteriaExpanded && (
-                          <div className="p-2.5 pt-1 border-t border-purple-800/40 bg-purple-950/60 space-y-2">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[10px] text-purple-200 font-mono">
-                              <div className="p-1.5 rounded bg-purple-950/80 border border-purple-800/40 flex items-center justify-between">
-                                <span>⚖️ Каноничность (JCS):</span>
-                                <span className="font-bold text-emerald-400">{msg.rawPayload.criteria.jcs_canonical ? '100%' : '50%'}</span>
-                              </div>
-                              <div className="p-1.5 rounded bg-purple-950/80 border border-purple-800/40 flex items-center justify-between">
-                                <span>🔒 Атомарность O_EXCL:</span>
-                                <span className="font-bold text-emerald-400">{msg.rawPayload.criteria.o_excl_verified ? 'PASS' : 'FAIL'}</span>
-                              </div>
-                              <div className="p-1.5 rounded bg-purple-950/80 border border-purple-800/40 flex items-center justify-between">
-                                <span>⏱️ Монотонность HLC:</span>
-                                <span className="font-bold text-emerald-400">{msg.rawPayload.criteria.hlc_monotonic ? 'PASS' : 'FAIL'}</span>
-                              </div>
-                              <div className="p-1.5 rounded bg-purple-950/80 border border-purple-800/40 flex items-center justify-between">
-                                <span>🗑️ SPEC MUST 6:</span>
-                                <span className="font-bold text-emerald-400">{msg.rawPayload.criteria.known_missing_retained ? 'PASS' : 'FAIL'}</span>
-                              </div>
-                            </div>
-                            <div className="text-[10px] text-purple-300/80 italic font-mono bg-purple-950/90 p-1.5 rounded border border-purple-900/60">
-                              «Первый в тяжбе своей прав, пока не придет соперник и не исследует его» (Притчи 18:17). Инварианты подтверждены.
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Parent Locator Reply Citation with Jump & Hover Glow */}
-                    {msg.parentLocator && (
-                      <div className="mt-2 pt-2 border-t border-slate-800/50 flex items-center space-x-1.5 text-[11px] text-slate-400 flex-wrap">
-                        <ArrowDownRight className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                        <span>В ответ на:</span>
-                        <button 
-                          type="button"
-                          onClick={() => {
-                            if (parentMsg) scrollToMessage(msg.parentLocator!);
-                            else setParentLocator(msg.parentLocator || '');
-                          }}
-                          onMouseEnter={() => setHoveredLocator(msg.parentLocator || null)}
-                          onMouseLeave={() => setHoveredLocator(null)}
-                          title={parentMsg ? `Перейти к исходному акту ${msg.parentLocator} (${parentMsg.sender})` : `Установить ответ`}
-                          className="font-mono text-indigo-300 hover:text-indigo-100 hover:underline bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800 hover:border-indigo-600 transition flex items-center space-x-1 cursor-pointer"
-                        >
-                          <span>{msg.parentLocator}</span>
-                          {parentMsg && (
-                            <span className="text-[9px] text-indigo-400 opacity-80">({parentMsg.sender})</span>
-                          )}
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Replies count / Thread Branch Indicator */}
-                    {replies.length > 0 && (
-                      <div className="mt-1.5 flex items-center space-x-1 text-[10px] text-slate-400">
-                        <CornerDownRight className="w-3 h-3 text-emerald-400 shrink-0" />
-                        <span className="text-slate-500">Ответы ({replies.length}):</span>
-                        <div className="flex items-center space-x-1 flex-wrap">
-                          {replies.slice(0, 3).map((reply) => (
-                            <button
-                              key={reply.id}
-                              type="button"
-                              onClick={() => scrollToMessage(reply.id)}
-                              onMouseEnter={() => setHoveredLocator(reply.locator || null)}
-                              onMouseLeave={() => setHoveredLocator(null)}
-                              className="font-mono text-[9px] text-emerald-400 hover:underline bg-emerald-950/40 px-1 py-0.2 rounded border border-emerald-800/40 hover:border-emerald-500 transition cursor-pointer"
-                              title={`Перейти к ответу от ${reply.sender}`}
-                            >
-                              {reply.locator || reply.sender}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Footer metadata & Action Toolbar */}
-                    <div className="mt-2.5 pt-1.5 border-t border-slate-800/40 flex flex-wrap items-center justify-between text-[10px] font-mono text-slate-400 gap-2">
-                      <div className="flex items-center space-x-2 truncate max-w-full">
-                        {msg.digest && (
-                          <span className="text-slate-400 truncate" title={`JCS SHA-256 Digest: ${msg.digest}`}>
-                            ⚖️ {msg.digest.slice(0, 14)}...
-                          </span>
-                        )}
-                        {msg.hlc && (
-                          <span className="text-indigo-400 truncate hidden sm:inline">
-                            ⏱️ HLC:{msg.hlc.slice(0, 14)}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Action buttons */}
-                      <div className="flex items-center space-x-1.5 shrink-0 ml-auto flex-wrap">
-                        <button
-                          onClick={() => handleLaunchTriadOnMessage(msg)}
-                          disabled={isSubmitting}
-                          className="flex items-center space-x-1 px-2 py-0.5 rounded bg-teal-950/80 hover:bg-teal-900 text-teal-300 border border-teal-700/60 text-[10px] font-semibold transition disabled:opacity-50"
-                          title="Запустить Триаду: ChatGPT оппонирует, а Mistral верифицирует инварианты"
-                        >
-                          <Zap className="w-3 h-3 text-teal-400" />
-                          <span>Триада</span>
-                        </button>
-
-                        <button
-                          onClick={() => handleLaunchCourtOnMessage(msg)}
-                          disabled={isSubmitting}
-                          className="flex items-center space-x-1 px-2 py-0.5 rounded bg-purple-950/80 hover:bg-purple-900 text-purple-300 border border-purple-700/60 text-[10px] font-semibold transition disabled:opacity-50"
-                          title="Передать в Суд: судебная оценка критериев и постановление (Ruling)"
-                        >
-                          <Gavel className="w-3 h-3 text-purple-400" />
-                          <span>В Суд</span>
-                        </button>
-
-                        <button
-                          onClick={() => setParentLocator(msg.locator || '')}
-                          className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] transition"
-                          title="Ответить на этот Акт"
-                        >
-                          Ответить
-                        </button>
-
-                        <button
-                          onClick={() => copyToClipboard(JSON.stringify(msg, null, 2), msg.id)}
-                          className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition"
-                          title="Копировать JSON конверта"
-                        >
-                          {copiedId === msg.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
