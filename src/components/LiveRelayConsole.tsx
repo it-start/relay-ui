@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import Markdown from 'react-markdown';
 import { 
   Terminal, Play, RefreshCw, Send, Trash2, CheckCircle2, 
   AlertTriangle, ShieldCheck, Sparkles, Server, MessageSquare, 
-  ArrowRight, FileJson, Copy, Check, Eye, Lock, Scale, Zap, Info,
+  ArrowRight, FileJson, FileText, Copy, Check, Eye, Lock, Scale, Zap, Info,
   Clock, GitCommit, GitBranch, ArrowUpRight, Share2, Layers
 } from 'lucide-react';
 import {
@@ -100,6 +101,7 @@ export const LiveRelayConsole: React.FC = () => {
 
   // Active Tab inside Console
   const [activeSubView, setActiveSubView] = useState<'ledger' | 'compose' | 'inboxes' | 'causality'>('ledger');
+  const [inspectorViewMode, setInspectorViewMode] = useState<'formatted' | 'json'>('formatted');
 
   // Live SSE Connection State
   const [sseConnected, setSseConnected] = useState<boolean>(false);
@@ -1453,10 +1455,108 @@ export const LiveRelayConsole: React.FC = () => {
                 </button>
               </div>
 
-              {/* Envelope JSON Viewer */}
-              <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 font-mono text-[11px] text-emerald-300 max-h-60 overflow-y-auto">
-                <pre>{JSON.stringify(selectedRecord.envelope, null, 2)}</pre>
+              {/* Tab Selector: Formatted Payload vs Raw JSON */}
+              <div className="flex items-center space-x-1 border-b border-slate-800 pb-2">
+                <button
+                  type="button"
+                  onClick={() => setInspectorViewMode('formatted')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition ${
+                    inspectorViewMode === 'formatted'
+                      ? 'bg-indigo-600/30 text-indigo-200 border border-indigo-500/50'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  }`}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Содержимое (Payload)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInspectorViewMode('json')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition ${
+                    inspectorViewMode === 'json'
+                      ? 'bg-indigo-600/30 text-indigo-200 border border-indigo-500/50'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  }`}
+                >
+                  <FileJson className="w-3.5 h-3.5" />
+                  <span>Сырой Конверт (JSON)</span>
+                </button>
               </div>
+
+              {/* View Content */}
+              {inspectorViewMode === 'formatted' ? (
+                <div className="bg-slate-950 p-3.5 rounded-lg border border-slate-800 max-h-80 overflow-y-auto space-y-3">
+                  {/* If payload has string text (e.g. p-e store records) */}
+                  {typeof selectedRecord.envelope.payload?.text === 'string' ? (
+                    <div className="space-y-1.5">
+                      <span className="text-[10px] font-mono uppercase font-bold text-indigo-400 block">
+                        Текст документа (Prose / Markdown):
+                      </span>
+                      <div className="text-xs text-slate-200 leading-relaxed font-sans break-words bg-slate-900/50 p-3 rounded border border-slate-800/60">
+                        <Markdown
+                          components={{
+                            p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed text-slate-300 whitespace-pre-wrap">{children}</p>,
+                            h1: ({ children }) => <h1 className="text-sm font-bold text-slate-100 mt-3 mb-1 border-b border-slate-800 pb-1">{children}</h1>,
+                            h2: ({ children }) => <h2 className="text-xs font-bold text-slate-100 mt-2 mb-1">{children}</h2>,
+                            h3: ({ children }) => <h3 className="text-xs font-semibold text-slate-200 mt-1.5 mb-1">{children}</h3>,
+                            ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1 text-slate-300">{children}</ul>,
+                            ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1 text-slate-300">{children}</ol>,
+                            blockquote: ({ children }) => <blockquote className="border-l-2 border-indigo-500/60 pl-3 my-2 text-slate-400 italic bg-slate-950/60 py-1 rounded-r">{children}</blockquote>,
+                            code: ({ inline, children, ...props }: any) => inline ? (
+                              <code className="bg-slate-950 px-1.5 py-0.5 rounded text-[11px] font-mono text-indigo-300 border border-slate-800" {...props}>
+                                {children}
+                              </code>
+                            ) : (
+                              <pre className="bg-slate-950 p-2.5 rounded border border-slate-800 text-[11px] font-mono text-emerald-300 overflow-x-auto my-2">
+                                <code>{children}</code>
+                              </pre>
+                            ),
+                          }}
+                        >
+                          {selectedRecord.envelope.payload.text}
+                        </Markdown>
+                      </div>
+                    </div>
+                  ) : typeof selectedRecord.envelope.payload?.body === 'string' || typeof selectedRecord.envelope.payload?.proposal === 'string' || typeof selectedRecord.envelope.payload?.claim === 'string' ? (
+                    <div className="space-y-1.5">
+                      <span className="text-[10px] font-mono uppercase font-bold text-indigo-400 block">
+                        Утверждение / Тезис:
+                      </span>
+                      <div className="text-xs text-slate-200 leading-relaxed bg-slate-900/50 p-3 rounded border border-slate-800/60 whitespace-pre-wrap font-sans">
+                        {selectedRecord.envelope.payload.body || selectedRecord.envelope.payload.proposal || selectedRecord.envelope.payload.claim}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="font-mono text-[11px] text-emerald-300">
+                      <pre>{JSON.stringify(selectedRecord.envelope.payload, null, 2)}</pre>
+                    </div>
+                  )}
+
+                  {/* Other metadata attributes if payload is an object */}
+                  {selectedRecord.envelope.payload && typeof selectedRecord.envelope.payload === 'object' && Object.keys(selectedRecord.envelope.payload).some(k => !['text', 'body', 'proposal', 'claim'].includes(k)) && (
+                    <div className="space-y-1.5 pt-2 border-t border-slate-800/60">
+                      <span className="text-[10px] font-mono uppercase font-bold text-slate-400 block">
+                        Дополнительные атрибуты Payload:
+                      </span>
+                      <div className="font-mono text-[11px] text-emerald-300 bg-slate-900/50 p-2 rounded border border-slate-800/60 overflow-x-auto">
+                        <pre>
+                          {JSON.stringify(
+                            Object.fromEntries(
+                              Object.entries(selectedRecord.envelope.payload).filter(([k]) => !['text', 'body', 'proposal', 'claim'].includes(k))
+                            ),
+                            null,
+                            2
+                          )}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 font-mono text-[11px] text-emerald-300 max-h-80 overflow-y-auto">
+                  <pre>{JSON.stringify(selectedRecord.envelope, null, 2)}</pre>
+                </div>
+              )}
             </div>
           )}
 

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
+import Markdown from 'react-markdown';
 import { 
   Send, Bot, Sparkles, User, Scale, ShieldCheck, 
   Terminal, RefreshCw, Paperclip, ChevronDown, Check,
   Clock, Hash, ArrowDownRight, Layers, Play, Radio,
-  MessageSquare, Zap, Cpu, AlertCircle, Copy, Gavel, HelpCircle
+  MessageSquare, Zap, Cpu, AlertCircle, Copy, Gavel, HelpCircle, Code
 } from 'lucide-react';
 
 interface ChatMessage {
@@ -21,6 +22,34 @@ interface ChatMessage {
   parentLocator?: string;
   status?: 'delivered' | 'pending' | 'adjudicated';
   rawPayload?: any;
+}
+
+/**
+ * Extracts human-readable prose or text from heterogeneous envelope payloads.
+ * Supports PeTextRelayStore ({ text }), standard claims ({ body, claim }), and complex objects.
+ */
+function extractPayloadText(payload: any): string {
+  if (payload === null || payload === undefined) return '';
+  if (typeof payload === 'string') return payload;
+  if (typeof payload.text === 'string') return payload.text;
+  if (typeof payload.body === 'string') return payload.body;
+  if (typeof payload.proposal === 'string') return payload.proposal;
+  if (typeof payload.claim === 'string') return payload.claim;
+  if (typeof payload.reasoning === 'string') return payload.reasoning;
+  if (typeof payload.content === 'string') return payload.content;
+  if (typeof payload.message === 'string') return payload.message;
+  return JSON.stringify(payload, null, 2);
+}
+
+function resolveSender(from: string): { sender: ChatMessage['sender']; label: string } {
+  const f = (from || '').toLowerCase();
+  if (f.includes('claude')) return { sender: 'claude', label: AGENT_CONFIGS.claude.name };
+  if (f.includes('chatgpt')) return { sender: 'chatgpt', label: AGENT_CONFIGS.chatgpt.name };
+  if (f.includes('gemini')) return { sender: 'gemini', label: AGENT_CONFIGS.gemini.name };
+  if (f.includes('mistral')) return { sender: 'mistral', label: AGENT_CONFIGS.mistral.name };
+  if (f.includes('court')) return { sender: 'court', label: AGENT_CONFIGS.court.name };
+  if (f.includes('human') || f.includes('architect')) return { sender: 'human', label: AGENT_CONFIGS.human.name };
+  return { sender: 'unknown', label: from || 'Unknown sender' };
 }
 
 const AGENT_CONFIGS: Record<string, {
@@ -113,7 +142,47 @@ export const AgentChatInterface: React.FC = () => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeAdjudicatingId, setActiveAdjudicatingId] = useState<string | null>(null);
 
+  const [rawViewMsgIds, setRawViewMsgIds] = useState<Set<string>>(new Set());
+
+  const toggleRawView = (id: string) => {
+    setRawViewMsgIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // Helper to highlight inline citations like relay-0774 in text
+  const renderTextWithLocators = (text: string) => {
+    if (typeof text !== 'string') return text;
+    const parts = text.split(/(relay-\d{4})/g);
+    if (parts.length === 1) return text;
+    return parts.map((part, idx) => {
+      if (/^relay-\d{4}$/.test(part)) {
+        return (
+          <button
+            key={idx}
+            type="button"
+            onClick={() => setParentLocator(part)}
+            title={`Установить ${part} как родительский локатор`}
+            className="inline-flex items-center px-1.5 py-0.2 mx-0.5 rounded text-[10px] font-mono font-bold bg-indigo-950 text-indigo-300 border border-indigo-700/60 hover:bg-indigo-900 hover:text-indigo-100 transition cursor-pointer"
+          >
+            {part}
+          </button>
+        );
+      }
+      return part;
+    });
+  };
+
+  const formatChildrenWithLocators = (node: React.ReactNode): React.ReactNode => {
+    if (typeof node === 'string') return renderTextWithLocators(node);
+    if (Array.isArray(node)) return React.Children.map(node, formatChildrenWithLocators);
+    return node;
+  };
 
   // Load existing records on mount and map to chat messages
   const loadInitialChatFromLedger = async () => {
@@ -125,26 +194,15 @@ export const AgentChatInterface: React.FC = () => {
           .filter((rec: any) => rec.status === 'PRESENT' && rec.envelope)
           .map((rec: any) => {
             const env = rec.envelope;
-            // Default `unknown`, not `human`: an unrecognised name is not
-            // evidence that the reader wrote it.
-            let sender: ChatMessage['sender'] = 'unknown';
-            const from = env.from || '';
-            if (from.includes('claude')) sender = 'claude';
-            else if (from.includes('chatgpt')) sender = 'chatgpt';
-            else if (from.includes('gemini')) sender = 'gemini';
-            else if (from.includes('mistral')) sender = 'mistral';
-            else if (from.includes('court')) sender = 'court';
-
-            const payloadText = typeof env.payload === 'string' 
-              ? env.payload 
-              : env.payload?.body || env.payload?.proposal || env.payload?.claim || env.payload?.reasoning || JSON.stringify(env.payload, null, 2);
+            const { sender, label } = resolveSender(env.from || '');
+            const payloadText = extractPayloadText(env.payload);
 
             return {
               id: env.locator || `msg-${Date.now()}-${Math.random()}`,
               seq: env.seq,
               locator: env.locator,
               sender,
-              senderLabel: AGENT_CONFIGS[sender]?.name || from,
+              senderLabel: label,
               type: env.type || 'claim',
               title: env.title,
               text: payloadText,
@@ -182,24 +240,15 @@ export const AgentChatInterface: React.FC = () => {
           const env = data.envelope;
           if (!env) return;
 
-          let sender: ChatMessage['sender'] = 'human';
-          const from = env.from || '';
-          if (from.includes('claude')) sender = 'claude';
-          else if (from.includes('chatgpt')) sender = 'chatgpt';
-          else if (from.includes('gemini')) sender = 'gemini';
-          else if (from.includes('mistral')) sender = 'mistral';
-          else if (from.includes('court')) sender = 'court';
-
-          const payloadText = typeof env.payload === 'string'
-            ? env.payload
-            : env.payload?.body || env.payload?.proposal || env.payload?.claim || env.payload?.reasoning || JSON.stringify(env.payload, null, 2);
+          const { sender, label } = resolveSender(env.from || '');
+          const payloadText = extractPayloadText(env.payload);
 
           const newMsg: ChatMessage = {
             id: env.locator || `msg-${Date.now()}`,
             seq: env.seq,
             locator: env.locator,
             sender,
-            senderLabel: AGENT_CONFIGS[sender]?.name || from,
+            senderLabel: label,
             type: env.type || 'claim',
             title: env.title,
             text: payloadText,
@@ -245,41 +294,33 @@ export const AgentChatInterface: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      if (selectedAgent === 'all' || selectedAgent === 'claude') {
-        // Send as human act first
-        const res = await fetch('/api/relay/deposit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from: 'agent:human-architect',
-            to: selectedAgent === 'all' ? 'all' : `agent:${selectedAgent}`,
-            type: selectedActType,
-            title: userText.slice(0, 40) + (userText.length > 40 ? '...' : ''),
-            parent_locator: parentLocator || undefined,
-            payload: {
-              body: userText,
-              author_role: 'Human Architect'
-            }
-          })
-        });
-        const data = await res.json();
+      // Send as human act first
+      const res = await fetch('/api/relay/deposit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: 'agent:human-architect',
+          to: selectedAgent === 'all' ? 'all' : `agent:${selectedAgent}`,
+          type: selectedActType,
+          title: userText.slice(0, 40) + (userText.length > 40 ? '...' : ''),
+          parent_locator: parentLocator || undefined,
+          payload: {
+            body: userText,
+            author_role: 'Human Architect'
+          }
+        })
+      });
+      const data = await res.json();
 
-        // If user asked a specific agent or broadcasted, trigger autonomous agent response
-        if (selectedAgent === 'claude') {
-          await triggerAgentExecution('claude', 'claim', `Ответ Claude на: ${userText}`, data.locator);
-        } else if (selectedAgent === 'chatgpt') {
-          await triggerAgentExecution('chatgpt', 'challenge', `Кросс-экзаменация ChatGPT: ${userText}`, data.locator);
-        } else if (selectedAgent === 'gemini') {
-          await triggerAgentExecution('gemini', 'finding', `Аудит Gemini: ${userText}`, data.locator);
-        }
-      } else {
-        // Trigger chosen agent directly
-        await triggerAgentExecution(
-          selectedAgent,
-          selectedActType,
-          userText,
-          parentLocator || undefined
-        );
+      // If user addressed a specific agent, trigger that agent's response
+      if (selectedAgent === 'claude') {
+        await triggerAgentExecution('claude', 'claim', `Ответ Claude на: ${userText}`, data.locator);
+      } else if (selectedAgent === 'chatgpt') {
+        await triggerAgentExecution('chatgpt', 'challenge', `Кросс-экзаменация ChatGPT: ${userText}`, data.locator);
+      } else if (selectedAgent === 'gemini') {
+        await triggerAgentExecution('gemini', 'finding', `Аудит Gemini: ${userText}`, data.locator);
+      } else if (selectedAgent === 'mistral') {
+        await triggerAgentExecution('mistral', 'finding', `Верификация Mistral: ${userText}`, data.locator);
       }
     } catch (err) {
       console.error('Send message error:', err);
@@ -568,7 +609,7 @@ export const AgentChatInterface: React.FC = () => {
                   <div className="flex items-center justify-between gap-2 mb-1.5 pb-1.5 border-b border-slate-800/60 flex-wrap">
                     <div className="flex items-center space-x-1.5 sm:space-x-2 min-w-0">
                       <span className={`text-xs font-bold truncate ${cfg.textColor}`}>
-                        {cfg.name}
+                        {msg.sender === 'unknown' ? (msg.senderLabel || cfg.name) : cfg.name}
                       </span>
                       <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono uppercase font-semibold border ${cfg.badgeBg} shrink-0`}>
                         {msg.type}
@@ -576,6 +617,21 @@ export const AgentChatInterface: React.FC = () => {
                     </div>
 
                     <div className="flex items-center space-x-1.5 text-[10px] font-mono text-slate-400 shrink-0 ml-auto">
+                      {msg.rawPayload !== undefined && (
+                        <button
+                          type="button"
+                          onClick={() => toggleRawView(msg.id)}
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition flex items-center space-x-1 cursor-pointer ${
+                            rawViewMsgIds.has(msg.id)
+                              ? 'bg-indigo-900/60 text-indigo-200 border border-indigo-700/60'
+                              : 'bg-slate-950/60 text-slate-400 hover:text-slate-200 border border-slate-800'
+                          }`}
+                          title={rawViewMsgIds.has(msg.id) ? "Показать форматированный текст" : "Показать исходный JSON payload"}
+                        >
+                          <Code className="w-2.5 h-2.5" />
+                          <span>{rawViewMsgIds.has(msg.id) ? 'PAYLOAD' : 'JSON'}</span>
+                        </button>
+                      )}
                       {msg.locator && (
                         <span className="text-indigo-400 font-bold bg-indigo-950/60 px-1.5 py-0.2 rounded border border-indigo-800/60">
                           {msg.locator}
@@ -593,9 +649,71 @@ export const AgentChatInterface: React.FC = () => {
                   )}
 
                   {/* Body Content */}
-                  <div className="text-xs text-slate-300 leading-relaxed font-sans whitespace-pre-wrap break-words">
-                    {msg.text}
-                  </div>
+                  {rawViewMsgIds.has(msg.id) ? (
+                    <div className="bg-slate-950/90 rounded-lg p-2.5 border border-slate-800 font-mono text-[11px] text-emerald-300 overflow-x-auto my-1">
+                      <pre>{JSON.stringify(msg.rawPayload || msg.text, null, 2)}</pre>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-200 leading-relaxed font-sans break-words space-y-1.5">
+                      <Markdown
+                        components={{
+                          p: ({ children }) => (
+                            <p className="mb-2 last:mb-0 leading-relaxed text-slate-300 whitespace-pre-wrap">
+                              {formatChildrenWithLocators(children)}
+                            </p>
+                          ),
+                          h1: ({ children }) => (
+                            <h1 className="text-sm font-bold text-slate-100 mt-3 mb-1.5 border-b border-slate-800 pb-1">
+                              {formatChildrenWithLocators(children)}
+                            </h1>
+                          ),
+                          h2: ({ children }) => (
+                            <h2 className="text-xs font-bold text-slate-100 mt-2.5 mb-1">
+                              {formatChildrenWithLocators(children)}
+                            </h2>
+                          ),
+                          h3: ({ children }) => (
+                            <h3 className="text-xs font-semibold text-slate-200 mt-2 mb-1">
+                              {formatChildrenWithLocators(children)}
+                            </h3>
+                          ),
+                          ul: ({ children }) => (
+                            <ul className="list-disc pl-4 mb-2 space-y-1 text-slate-300">
+                              {children}
+                            </ul>
+                          ),
+                          ol: ({ children }) => (
+                            <ol className="list-decimal pl-4 mb-2 space-y-1 text-slate-300">
+                              {children}
+                            </ol>
+                          ),
+                          li: ({ children }) => (
+                            <li className="leading-relaxed">
+                              {formatChildrenWithLocators(children)}
+                            </li>
+                          ),
+                          blockquote: ({ children }) => (
+                            <blockquote className="border-l-2 border-indigo-500/60 pl-3 my-2 text-slate-400 italic bg-slate-950/40 py-1.5 rounded-r">
+                              {formatChildrenWithLocators(children)}
+                            </blockquote>
+                          ),
+                          code: ({ inline, children, ...props }: any) => {
+                            return inline ? (
+                              <code className="bg-slate-950 px-1.5 py-0.5 rounded text-[11px] font-mono text-indigo-300 border border-slate-800/80" {...props}>
+                                {children}
+                              </code>
+                            ) : (
+                              <pre className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-[11px] font-mono text-emerald-300 overflow-x-auto my-2">
+                                <code>{children}</code>
+                              </pre>
+                            );
+                          },
+                        }}
+                      >
+                        {msg.text}
+                      </Markdown>
+                    </div>
+                  )}
 
                   {/* Criteria Scores Box for Court Rulings */}
                   {msg.sender === 'court' && msg.rawPayload?.criteria && (
