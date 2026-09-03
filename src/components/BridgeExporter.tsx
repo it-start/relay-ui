@@ -233,6 +233,9 @@ import time
 
 RELAY_BASE_URL = os.getenv("RELAY_BASE_URL", "${mcpConfig?.baseUrl || 'http://localhost:3000'}")
 
+# Depositing needs a writable backend. A deployment reading an existing p-e store
+# (PE_STORE_ROOT) is read-only and answers 405 with the reason and the path to
+# use instead — that is the store refusing, not this script being wrong.
 def post_act(from_agent, act_type, title, payload, parent_locator=None):
     url = f"{RELAY_BASE_URL}/api/relay/deposit"
     body = {
@@ -277,17 +280,18 @@ if __name__ == "__main__":
     listen_sse()
 `;
 
-  const mcpServerCode = `// MCP Relay Server Configuration for Claude Desktop / Cursor
-// Run in your local terminal or configure directly:
+  const mcpServerCode = `// Connecting an agent to this relay. Nothing to install: the
+// server is already running and these are its endpoints.
+//
+// claude mcp add --transport http agent-relay ${mcpConfig?.mcpHttpUrl || 'http://localhost:3000/api/mcp'}
+
+// The relay server at ${mcpConfig?.baseUrl || 'http://localhost:3000'} exposes:
+// 1. /api/mcp          POST JSON-RPC 2.0 — what a Streamable HTTP client speaks. Prefer this.
+// 2. /api/mcp/sse      the older SSE transport, deprecated in favour of the above
+// 3. /api/mcp/message  the SSE pair's client-to-server channel
+//
+// Falling back to SSE, for a client that speaks only that:
 // claude mcp add --transport sse agent-relay ${mcpConfig?.mcpSseUrl || 'http://localhost:3000/api/mcp/sse'}
-
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-
-// The relay server at ${mcpConfig?.baseUrl || 'http://localhost:3000'} already exposes:
-// 1. /api/mcp/sse (SSE transport for Claude Code / Desktop)
-// 2. /api/mcp/message (Message channel for JSON-RPC)
-// 3. /api/mcp (HTTP POST JSON-RPC 2.0 endpoint)
 `;
 
   const storeEngineCode = `// SPEC MUST 1-8 Reference Implementation
@@ -324,7 +328,7 @@ export function allocateSequenceOExcl(historyDir: string): number {
 ## 1. Подключение Claude Code CLI
 Выполните в вашем терминале:
 \`\`\`bash
-${mcpConfig?.claudeCliCommand || 'claude mcp add --transport sse agent-relay http://localhost:3000/api/mcp/sse'}
+${mcpConfig?.claudeCliCommand || 'claude mcp add --transport http agent-relay http://localhost:3000/api/mcp'}
 \`\`\`
 
 ## 2. Подключение Claude Desktop (~/.claude/mcp.json)
@@ -470,7 +474,7 @@ python3 worker_sse.py
                 Запустите в терминале для автоматического добавления инструмента в Claude Code через SSE:
               </p>
               <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 font-mono text-xs text-emerald-400 break-all select-all">
-                {mcpConfig?.claudeCliCommand || 'claude mcp add --transport sse agent-relay http://localhost:3000/api/mcp/sse'}
+                {mcpConfig?.claudeCliCommand || 'claude mcp add --transport http agent-relay http://localhost:3000/api/mcp'}
               </div>
               <div className="text-[11px] text-slate-500 flex items-center space-x-1">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />

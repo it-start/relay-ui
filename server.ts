@@ -524,6 +524,30 @@ const MCP_TOOLS = [
 ];
 
 // MCP JSON-RPC 2.0 Handler
+/**
+ * Answer the revision the client asked for, when we can serve it.
+ *
+ * Replying with a fixed version regardless of what was asked is how an MCP
+ * handshake fails silently: the client rejects the mismatch and retries, which
+ * from the server's side looks like a healthy connection carrying nothing but
+ * `initialize`. The p-e relay server hit exactly this and recorded the shape of
+ * it — 162 consecutive initialize forwards, no tools/list, while every local
+ * probe succeeded — so this is that fix, not a new idea.
+ *
+ * The set is the revisions whose handshake and tool surface this server serves
+ * unchanged. It implements `initialize`, `tools/list`, `tools/call` and
+ * `resources/list`, and none of these revisions altered them. A revision outside
+ * the set gets our default rather than an echo, because echoing a version we
+ * have not checked is the same failure with better manners.
+ */
+const SERVABLE_PROTOCOLS = new Set(['2024-11-05', '2025-03-26', '2025-06-18']);
+const DEFAULT_PROTOCOL = '2024-11-05';
+
+function negotiateProtocol(params: any): string {
+  const asked = params?.protocolVersion;
+  return typeof asked === 'string' && SERVABLE_PROTOCOLS.has(asked) ? asked : DEFAULT_PROTOCOL;
+}
+
 async function handleMcpRpc(body: any): Promise<any> {
   const { jsonrpc, id, method, params } = body;
 
@@ -532,7 +556,7 @@ async function handleMcpRpc(body: any): Promise<any> {
       jsonrpc: '2.0',
       id,
       result: {
-        protocolVersion: '2024-11-05',
+        protocolVersion: negotiateProtocol(params),
         capabilities: {
           tools: {},
           resources: {},
@@ -746,34 +770,59 @@ app.get('/api/mcp/config', (req, res) => {
   const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
   const baseUrl = `${protocol}://${host}`;
 
-  const claudeDesktopConfig = {
+  // `POST /api/mcp` is what these lead with. It is plain JSON-RPC over HTTP,
+  // which is what a Streamable HTTP client sends for stateless tool calling, and
+  // it was verified end to end against the deployed service: initialize 200,
+  // notifications/initialized 204, tools/list returning all seven tools.
+  //
+  // The SSE pair still works and is offered as a fallback rather than removed —
+  // it is the older transport, deprecated in favour of Streamable HTTP, and
+  // clients that only speak it are still around. What changed is which one a
+  // reader is handed first: this endpoint advertised only SSE while the better
+  // transport sat beside it, already implemented.
+  const claudeConfig = {
     mcpServers: {
-      "agent-relay": {
-        url: `${baseUrl}/api/mcp/sse`,
-        transport: "sse"
-      }
+      "agent-relay": { type: "http", url: `${baseUrl}/api/mcp` }
     }
   };
 
+  const claudeConfigSse = {
+    mcpServers: {
+      "agent-relay": { type: "sse", url: `${baseUrl}/api/mcp/sse` }
+    }
+  };
+
+  // NOT UPDATED, and flagged rather than guessed at. This hands Cursor
+  // `@modelcontextprotocol/server-fetch` pointed at our URL, which is a server
+  // that fetches URLs — it would give Cursor a fetch tool, not the seven relay
+  // tools. Rewriting it needs Cursor's remote-server schema confirmed against
+  // Cursor's own documentation, and inventing a schema is how the SSE-only
+  // advice above came to be handed out for months.
   const cursorMcpConfig = {
     mcpServers: {
       "agent-relay": {
         command: "npx",
         args: ["-y", "@modelcontextprotocol/server-fetch", `${baseUrl}/api/mcp`]
       }
-    }
+    },
+    _note: "unverified; see server.ts. Prefer claudeConfig's url form if your client accepts it."
   };
 
-  const claudeCliCommand = `claude mcp add --transport sse agent-relay ${baseUrl}/api/mcp/sse`;
+  const claudeCliCommand = `claude mcp add --transport http agent-relay ${baseUrl}/api/mcp`;
+  const claudeCliCommandSse = `claude mcp add --transport sse agent-relay ${baseUrl}/api/mcp/sse`;
 
   res.json({
     baseUrl,
     sseEventsUrl: `${baseUrl}/api/relay/events`,
-    mcpSseUrl: `${baseUrl}/api/mcp/sse`,
     mcpHttpUrl: `${baseUrl}/api/mcp`,
-    claudeDesktopConfig,
+    mcpSseUrl: `${baseUrl}/api/mcp/sse`,
+    claudeConfig,
+    claudeConfigSse,
+    // Former name for `claudeConfig`, kept so an existing reader is not broken.
+    claudeDesktopConfig: claudeConfig,
     cursorMcpConfig,
-    claudeCliCommand
+    claudeCliCommand,
+    claudeCliCommandSse
   });
 });
 
