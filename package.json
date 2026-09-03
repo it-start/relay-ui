@@ -10,7 +10,8 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "check:pe-store": "tsx scripts/check-pe-store.ts",
-    "check:posix-store": "tsx scripts/check-posix-store.ts"
+    "check:posix-store": "tsx scripts/check-posix-store.ts",
+    "check:attest": "tsx scripts/check-attest-log.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

@@ -7,6 +7,7 @@ import { RosettaMatrix } from './components/RosettaMatrix';
 import { EnvelopeStudio } from './components/EnvelopeStudio';
 import { FailureSandbox } from './components/FailureSandbox';
 import { BridgeExporter } from './components/BridgeExporter';
+import { AttestationDesk } from './components/AttestationDesk';
 import { Scale, HeartHandshake, ShieldCheck, Github, Cpu } from 'lucide-react';
 
 export default function App() {
@@ -36,6 +37,7 @@ export default function App() {
         {activeTab === 'envelope' && <EnvelopeStudio />}
         {activeTab === 'sandbox' && <FailureSandbox />}
         {activeTab === 'bridge' && <BridgeExporter />}
+        {activeTab === 'attest' && <AttestationDesk />}
       </main>
 
       {/* Footer - Only shown on documentation / tool tabs, hidden on chat to preserve vertical space */}

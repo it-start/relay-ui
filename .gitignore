@@ -10,3 +10,6 @@ coverage/
 
 # Per-host deploy config, read by deploy.sh
 deploy.env
+
+# Attestation log written by the WebMCP surface at runtime.
+.attest/

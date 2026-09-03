@@ -11,6 +11,7 @@ import {
   RelayStoreStatus,
   DepositInput 
 } from './server/store';
+import { getAttestationLog, VIA_VALUES, Via, ActKind } from './server/attest/log';
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -1329,6 +1330,98 @@ app.post('/api/relay/agent-exec', async (req, res) => {
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// ---------------------------------------------------------------------------
+// WebMCP attestation surface
+//
+// Every route below records HOW an act reached the page, which is the one thing
+// WebMCP does not carry. `via` is asserted by the page and is never verified
+// here: the page can see whether `document.modelContext` dispatched a call or a
+// button was activated; this server receives an ordinary HTTP request. The log
+// says `attested_by: "page"` for that reason rather than implying otherwise.
+// ---------------------------------------------------------------------------
+
+const attestLog = getAttestationLog();
+
+const ACT_KINDS: ActKind[] = ['note', 'proposal', 'approval'];
+
+app.post('/api/attest/act', (req, res) => {
+  try {
+    const { kind, text, target, via, agent_hint } = req.body ?? {};
+
+    if (!ACT_KINDS.includes(kind)) {
+      return res.status(400).json({ error: `kind must be one of ${ACT_KINDS.join(', ')}` });
+    }
+    if (!VIA_VALUES.includes(via)) {
+      return res.status(400).json({
+        error: `via must be one of ${VIA_VALUES.join(', ')}`,
+        note: 'A caller that omits it is not defaulted to the human. There is no default.'
+      });
+    }
+    if (kind !== 'approval' && typeof text !== 'string') {
+      return res.status(400).json({ error: 'text is required for a note or a proposal' });
+    }
+    if (kind === 'approval') {
+      const proposal = attestLog.all().find((a) => a.id === target && a.kind === 'proposal');
+      if (!proposal) {
+        return res.status(404).json({ error: `no proposal with id ${target}` });
+      }
+      const already = attestLog.all().find((a) => a.kind === 'approval' && a.target === target);
+      if (already) {
+        // Not idempotent, and saying so rather than silently duplicating. MCP
+        // carries `idempotentHint`; WebMCP dropped it, so a retrying agent has
+        // nothing to check and this is where it would double-post.
+        return res.status(409).json({
+          error: `${target} was already approved by ${already.id}`,
+          approval: already
+        });
+      }
+    }
+
+    const act = attestLog.append(
+      {
+        kind,
+        text: typeof text === 'string' ? text.slice(0, 2000) : undefined,
+        target: typeof target === 'string' ? target : undefined,
+        via: via as Via,
+        agent_hint: typeof agent_hint === 'string' ? agent_hint.slice(0, 120) : undefined
+      },
+      req.get('origin') ?? null
+    );
+
+    res.status(201).json({ act });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/attest/acts', (_req, res) => {
+  try {
+    const acts = attestLog.all();
+    const proposals = acts.filter((a) => a.kind === 'proposal');
+    const approvedTargets = new Set(acts.filter((a) => a.kind === 'approval').map((a) => a.target));
+    res.json({
+      acts,
+      pending: proposals.filter((p) => !approvedTargets.has(p.id)),
+      unattestable: acts.filter((a) => !a.distinguishes_hands).length,
+      chain: attestLog.verify()
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/attest/status', (_req, res) => {
+  const acts = attestLog.all();
+  const byVia = Object.fromEntries(VIA_VALUES.map((v) => [v, acts.filter((a) => a.via === v).length]));
+  res.json({
+    total: acts.length,
+    byVia,
+    chain: attestLog.verify(),
+    attested_by: 'page',
+    note: 'via is reported by the page and verified by nobody. The server checks the request origin and nothing else about who acted.'
+  });
 });
 
 // Start Server and Vite Middleware
