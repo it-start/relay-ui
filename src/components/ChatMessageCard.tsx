@@ -2,9 +2,9 @@ import React, { memo, useMemo } from 'react';
 import Markdown from 'react-markdown';
 import { 
   Code, ChevronDown, ChevronRight, ArrowDownRight, 
-  CornerDownRight, Zap, Gavel, Copy, Check 
+  CornerDownRight, Zap, Gavel, Copy, Check, Compass 
 } from 'lucide-react';
-import { AGENT_CONFIGS, ChatMessage } from './chatTypes';
+import { getAgentConfig, ChatMessage } from './chatTypes';
 
 export interface ChatMessageCardProps {
   msg: ChatMessage;
@@ -25,6 +25,7 @@ export interface ChatMessageCardProps {
   onLaunchTriad: (msg: ChatMessage) => void;
   onLaunchCourt: (msg: ChatMessage) => void;
   onCopyToClipboard: (text: string, id: string) => void;
+  onFocusInGraph?: (locator: string) => void;
 }
 
 export const ChatMessageCard: React.FC<ChatMessageCardProps> = memo(({
@@ -46,8 +47,9 @@ export const ChatMessageCard: React.FC<ChatMessageCardProps> = memo(({
   onLaunchTriad,
   onLaunchCourt,
   onCopyToClipboard,
+  onFocusInGraph,
 }) => {
-  const cfg = AGENT_CONFIGS[msg.sender] || AGENT_CONFIGS.unknown;
+  const cfg = getAgentConfig(msg.sender);
   const Icon = cfg.icon;
 
   // Memoized text formatting for inline locators (e.g. relay-0042)
@@ -387,6 +389,18 @@ export const ChatMessageCard: React.FC<ChatMessageCardProps> = memo(({
               <Gavel className="w-3 h-3 text-purple-400" />
               <span>В Суд</span>
             </button>
+
+            {onFocusInGraph && msg.locator && (
+              <button
+                type="button"
+                onClick={() => onFocusInGraph(msg.locator || '')}
+                className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 border border-indigo-700/60 text-[10px] font-semibold transition cursor-pointer"
+                title="Показать в интерактивном графе причинности (DAG)"
+              >
+                <Compass className="w-3 h-3 text-indigo-400" />
+                <span className="hidden sm:inline">Граф</span>
+              </button>
+            )}
 
             <button
               onClick={() => onSetParentLocator(msg.locator || '')}

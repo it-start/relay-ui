@@ -5,10 +5,11 @@ import {
   Terminal, RefreshCw, Paperclip, ChevronDown, ChevronRight, Check,
   Clock, Hash, ArrowDownRight, Layers, Play, Radio,
   MessageSquare, Zap, Cpu, AlertCircle, Copy, Gavel, HelpCircle, Code,
-  Maximize2, Minimize2, Filter, CornerDownRight
+  Maximize2, Minimize2, Filter, CornerDownRight, Columns2, Network
 } from 'lucide-react';
-import { ChatMessage, AGENT_CONFIGS } from './chatTypes';
+import { ChatMessage, AGENT_CONFIGS, getAgentConfig } from './chatTypes';
 import { ChatMessageCard } from './ChatMessageCard';
+import { CausalGraphView } from './CausalGraphView';
 
 export interface AgentChatInterfaceProps {
   isFocusMode?: boolean;
@@ -33,14 +34,9 @@ function extractPayloadText(payload: any): string {
 }
 
 function resolveSender(from: string): { sender: ChatMessage['sender']; label: string } {
-  const f = (from || '').toLowerCase();
-  if (f.includes('claude')) return { sender: 'claude', label: AGENT_CONFIGS.claude.name };
-  if (f.includes('chatgpt')) return { sender: 'chatgpt', label: AGENT_CONFIGS.chatgpt.name };
-  if (f.includes('gemini')) return { sender: 'gemini', label: AGENT_CONFIGS.gemini.name };
-  if (f.includes('mistral')) return { sender: 'mistral', label: AGENT_CONFIGS.mistral.name };
-  if (f.includes('court')) return { sender: 'court', label: AGENT_CONFIGS.court.name };
-  if (f.includes('human') || f.includes('architect')) return { sender: 'human', label: AGENT_CONFIGS.human.name };
-  return { sender: 'unknown', label: from || 'Unknown sender' };
+  const norm = (from || '').toLowerCase().replace(/^(agent:|bee\.)/, '').trim();
+  const cfg = getAgentConfig(from);
+  return { sender: norm || 'unknown', label: cfg.name };
 }
 
 export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
@@ -49,6 +45,8 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState<string>('');
+  const [viewMode, setViewMode] = useState<'chat' | 'split' | 'graph'>('chat');
+  const [selectedGraphLocator, setSelectedGraphLocator] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<'claude' | 'chatgpt' | 'gemini' | 'mistral' | 'all'>('all');
   const [selectedActType, setSelectedActType] = useState<'claim' | 'challenge' | 'finding' | 'ruling' | 'attestation'>('claim');
   const [filterSender, setFilterSender] = useState<string>('all');
@@ -163,6 +161,21 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
       setTimeout(() => setHighlightedMsgId(null), 2400);
     }
   }, [filteredMessages, rowVirtualizer]);
+
+  const handleFocusInGraph = useCallback((locator: string) => {
+    setSelectedGraphLocator(locator);
+    if (viewMode === 'chat') {
+      setViewMode('split');
+    }
+  }, [viewMode]);
+
+  const handleSelectGraphLocator = useCallback((locator: string) => {
+    setSelectedGraphLocator(locator);
+    if (viewMode === 'graph') {
+      setViewMode('split');
+    }
+    scrollToMessage(locator);
+  }, [viewMode, scrollToMessage]);
 
   // Load existing records on mount and map to chat messages
   const loadInitialChatFromLedger = async () => {
@@ -558,6 +571,49 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
 
         {/* Right: Controls */}
         <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
+          {/* View Mode Toggle: Chat / Split / Graph */}
+          <div className="flex items-center bg-slate-900 border border-slate-700/80 rounded-lg p-0.5 text-[10px] sm:text-xs">
+            <button
+              type="button"
+              onClick={() => setViewMode('chat')}
+              className={`px-2 py-0.5 rounded-md font-semibold transition flex items-center space-x-1 ${
+                viewMode === 'chat'
+                  ? 'bg-indigo-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Классический чат с виртуализацией"
+            >
+              <MessageSquare className="w-3 h-3" />
+              <span className="hidden md:inline">Чат</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('split')}
+              className={`px-2 py-0.5 rounded-md font-semibold transition flex items-center space-x-1 ${
+                viewMode === 'split'
+                  ? 'bg-indigo-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Сплит-режим: Чат слева, Интерактивный DAG справа"
+            >
+              <Columns2 className="w-3 h-3" />
+              <span className="hidden md:inline">Сплит</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('graph')}
+              className={`px-2 py-0.5 rounded-md font-semibold transition flex items-center space-x-1 ${
+                viewMode === 'graph'
+                  ? 'bg-indigo-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Полноэкранный интерактивный граф причинности"
+            >
+              <Network className="w-3 h-3" />
+              <span className="hidden md:inline">Граф DAG</span>
+            </button>
+          </div>
+
           {/* Filter by Sender */}
           <div className="flex items-center bg-slate-900 border border-slate-700/80 rounded-lg px-2 py-0.5 text-slate-200 text-[10px] sm:text-xs">
             <Filter className="w-3 h-3 text-slate-400 mr-1.5 shrink-0" />
@@ -627,196 +683,228 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
         </div>
       </div>
 
-      {/* 2. Message Stream Feed (Centered ChatGPT/Claude-style stream) */}
-      <div 
-        ref={chatContainerRef}
-        className="flex-1 w-full overflow-y-auto overflow-x-hidden scroll-smooth py-4 sm:py-6 px-3 sm:px-6"
-      >
-        <div className="max-w-3xl lg:max-w-4xl mx-auto w-full space-y-4 sm:space-y-6">
-          {filteredMessages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center min-h-[360px] text-center p-6 text-slate-500 space-y-4">
-              <div className="w-12 h-12 rounded-2xl bg-indigo-950/60 border border-indigo-800/40 flex items-center justify-center text-indigo-400 shadow-inner">
-                <MessageSquare className="w-6 h-6" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="text-sm sm:text-base font-semibold text-slate-200">
-                  Чат мульти-агентного консилиума
-                </h3>
-                <p className="text-xs text-slate-400 max-w-md mx-auto">
-                  Все сообщения валидируются по RFC 8785, получают канонический дайджест SHA-256 и атомарно фиксируются в O_EXCL леджере.
-                </p>
-              </div>
-
-              {/* Quick suggestion cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-lg pt-2 text-left">
-                <button
-                  onClick={() => {
-                    setInputText('Как протокол гарантирует отсутствие race conditions при одновременной записи слотов?');
-                    textareaRef.current?.focus();
-                  }}
-                  className="p-3 rounded-xl bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 transition text-xs text-slate-300 space-y-1"
-                >
-                  <span className="font-semibold text-indigo-400 block">🔒 Инвариант O_EXCL</span>
-                  <span className="text-[11px] text-slate-400 line-clamp-2">Проверить гарантию взаимного исключения POSIX</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setInputText('Предлагаю архитектуру гибридных часов HLC с монотонным инкрементом логического счетчика.');
-                    setSelectedActType('claim');
-                    textareaRef.current?.focus();
-                  }}
-                  className="p-3 rounded-xl bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 transition text-xs text-slate-300 space-y-1"
-                >
-                  <span className="font-semibold text-amber-400 block">⏱️ Каузальность HLC</span>
-                  <span className="text-[11px] text-slate-400 line-clamp-2">Вынести тезис о причинно-следственном порядке</span>
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div
-              className="w-full relative"
-              style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+      {/* 2. Main Workspace (Chat / Split / Graph) */}
+      {viewMode === 'graph' ? (
+        <div className="flex-1 w-full h-full relative">
+          <CausalGraphView
+            messages={messages}
+            selectedLocator={selectedGraphLocator}
+            onSelectLocator={handleSelectGraphLocator}
+          />
+        </div>
+      ) : (
+        <div className="flex-1 w-full h-full flex overflow-hidden">
+          {/* Left Column: Virtualized Chat Stream + Floating Composer */}
+          <div className={`flex flex-col h-full overflow-hidden ${viewMode === 'split' ? 'w-full lg:w-1/2 border-r border-slate-800 shrink-0' : 'w-full'}`}>
+            {/* Message Stream Feed (Centered ChatGPT/Claude-style stream) */}
+            <div 
+              ref={chatContainerRef}
+              className="flex-1 w-full overflow-y-auto overflow-x-hidden scroll-smooth py-4 sm:py-6 px-3 sm:px-6"
             >
-              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                const msg = filteredMessages[virtualRow.index];
-                const replies = msg.locator ? (repliesMap.get(msg.locator) || []) : [];
-                const parentMsg = msg.parentLocator ? (locatorToMessageMap.get(msg.parentLocator) || null) : null;
+              <div className="max-w-3xl lg:max-w-4xl mx-auto w-full space-y-4 sm:space-y-6">
+                {filteredMessages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center min-h-[360px] text-center p-6 text-slate-500 space-y-4">
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-950/60 border border-indigo-800/40 flex items-center justify-center text-indigo-400 shadow-inner">
+                      <MessageSquare className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-sm sm:text-base font-semibold text-slate-200">
+                        Чат мульти-агентного консилиума
+                      </h3>
+                      <p className="text-xs text-slate-400 max-w-md mx-auto">
+                        Все сообщения валидируются по RFC 8785, получают канонический дайджест SHA-256 и атомарно фиксируются в O_EXCL леджере.
+                      </p>
+                    </div>
 
-                return (
-                  <div
-                    key={virtualRow.key}
-                    ref={rowVirtualizer.measureElement}
-                    data-index={virtualRow.index}
-                    className="absolute top-0 left-0 w-full pb-3 sm:pb-4"
-                    style={{
-                      transform: `translateY(${virtualRow.start}px)`,
-                    }}
-                  >
-                    <ChatMessageCard
-                      msg={msg}
-                      isHuman={msg.sender === "human"}
-                      isTemporarilyHighlighted={highlightedMsgId === msg.id}
-                      isCriteriaExpanded={expandedCriteriaIds.has(msg.id)}
-                      isRawView={rawViewMsgIds.has(msg.id)}
-                      isCopied={copiedId === msg.id}
-                      isSubmitting={isSubmitting}
-                      parentMsg={parentMsg}
-                      replies={replies}
-                      hasLocator={hasLocator}
-                      onToggleRawView={toggleRawView}
-                      onToggleCriteriaExpand={toggleCriteriaExpand}
-                      onSetParentLocator={setParentLocator}
-                      onScrollToMessage={scrollToMessage}
-                      onLocatorHover={handleLocatorHover}
-                      onLaunchTriad={handleLaunchTriadOnMessage}
-                      onLaunchCourt={handleLaunchCourtOnMessage}
-                      onCopyToClipboard={copyToClipboard}
-                    />
+                    {/* Quick suggestion cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-lg pt-2 text-left">
+                      <button
+                        onClick={() => {
+                          setInputText('Как протокол гарантирует отсутствие race conditions при одновременной записи слотов?');
+                          textareaRef.current?.focus();
+                        }}
+                        className="p-3 rounded-xl bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 transition text-xs text-slate-300 space-y-1"
+                      >
+                        <span className="font-semibold text-indigo-400 block">🔒 Инвариант O_EXCL</span>
+                        <span className="text-[11px] text-slate-400 line-clamp-2">Проверить гарантию взаимного исключения POSIX</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setInputText('Предлагаю архитектуру гибридных часов HLC с монотонным инкрементом логического счетчика.');
+                          setSelectedActType('claim');
+                          textareaRef.current?.focus();
+                        }}
+                        className="p-3 rounded-xl bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 transition text-xs text-slate-300 space-y-1"
+                      >
+                        <span className="font-semibold text-amber-400 block">⏱️ Каузальность HLC</span>
+                        <span className="text-[11px] text-slate-400 line-clamp-2">Вынести тезис о причинно-следственном порядке</span>
+                      </button>
+                    </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 3. Floating Bottom Composer (ChatGPT / Claude / Grok Style) */}
-      <div className="bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent pt-1 pb-3 sm:pb-4 px-3 sm:px-6 shrink-0 z-20">
-        <div className="max-w-3xl lg:max-w-4xl mx-auto w-full space-y-1.5">
-          {/* Replying banner */}
-          {parentLocator && (
-            <div className="bg-indigo-950/80 px-3 py-1 rounded-xl border border-indigo-800/80 flex items-center justify-between text-xs text-indigo-300">
-              <div className="flex items-center space-x-2 truncate">
-                <ArrowDownRight className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                <span className="truncate">Ответ на Акт: <strong className="font-mono text-white">{parentLocator}</strong></span>
-              </div>
-              <button
-                onClick={() => setParentLocator('')}
-                className="text-[11px] text-indigo-400 hover:text-white shrink-0 ml-2 cursor-pointer"
-              >
-                ✕ Отмена
-              </button>
-            </div>
-          )}
-
-          {/* Composer Card with integrated multiline input and controls */}
-          <div className="bg-slate-900/95 border border-slate-700/80 focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500/40 rounded-2xl p-2.5 sm:p-3 shadow-2xl transition space-y-2">
-            <textarea
-              ref={textareaRef}
-              rows={2}
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendMessage();
-                }
-              }}
-              placeholder="Спросите агентов или предложите тезис (Enter для отправки, Shift+Enter для новой строки)..."
-              className="w-full bg-transparent border-0 text-slate-100 text-xs sm:text-sm placeholder-slate-500 focus:outline-none resize-none font-sans max-h-36 min-h-[44px]"
-            />
-
-            {/* Bottom Row inside Composer */}
-            <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/60 flex-wrap">
-              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                {/* Target Agent Selector */}
-                <div className="flex items-center space-x-1 text-[11px] text-slate-400">
-                  <span className="hidden xs:inline">Кому:</span>
-                  <select
-                    value={selectedAgent}
-                    onChange={(e: any) => setSelectedAgent(e.target.value)}
-                    className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-slate-100 text-[11px] font-medium focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-                    style={{ colorScheme: 'dark' }}
-                  >
-                    <option value="all" className="bg-slate-900 text-slate-100 py-1">📢 Всем (Swarm)</option>
-                    <option value="claude" className="bg-slate-900 text-slate-100 py-1">🤖 Claude Code</option>
-                    <option value="chatgpt" className="bg-slate-900 text-slate-100 py-1">⚡ ChatGPT Adversary</option>
-                    <option value="gemini" className="bg-slate-900 text-slate-100 py-1">✨ Gemini Guard</option>
-                    <option value="mistral" className="bg-slate-900 text-slate-100 py-1">⚙️ Mistral</option>
-                  </select>
-                </div>
-
-                {/* Act Type Selector */}
-                <div className="flex items-center space-x-1 text-[11px] text-slate-400">
-                  <span className="hidden xs:inline">Тип:</span>
-                  <select
-                    value={selectedActType}
-                    onChange={(e: any) => setSelectedActType(e.target.value)}
-                    className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-slate-100 text-[11px] font-medium focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-                    style={{ colorScheme: 'dark' }}
-                  >
-                    <option value="claim" className="bg-slate-900 text-slate-100 py-1">claim (Тезис)</option>
-                    <option value="challenge" className="bg-slate-900 text-slate-100 py-1">challenge (Возражение)</option>
-                    <option value="finding" className="bg-slate-900 text-slate-100 py-1">finding (Вывод)</option>
-                    <option value="ruling" className="bg-slate-900 text-slate-100 py-1">ruling (Суд)</option>
-                    <option value="attestation" className="bg-slate-900 text-slate-100 py-1">attestation (Заверение)</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Send Button */}
-              <button
-                onClick={handleSendMessage}
-                disabled={!inputText.trim() || isSubmitting}
-                className="h-8 sm:h-9 px-3 sm:px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs flex items-center justify-center space-x-1.5 shadow-md shadow-indigo-600/20 transition disabled:opacity-40 disabled:cursor-not-allowed ml-auto cursor-pointer"
-              >
-                {isSubmitting ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                 ) : (
-                  <>
-                    <Send className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Отправить</span>
-                  </>
+                  <div
+                    className="w-full relative"
+                    style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+                  >
+                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                      const msg = filteredMessages[virtualRow.index];
+                      const replies = msg.locator ? (repliesMap.get(msg.locator) || []) : [];
+                      const parentMsg = msg.parentLocator ? (locatorToMessageMap.get(msg.parentLocator) || null) : null;
+
+                      return (
+                        <div
+                          key={virtualRow.key}
+                          ref={rowVirtualizer.measureElement}
+                          data-index={virtualRow.index}
+                          className="absolute top-0 left-0 w-full pb-3 sm:pb-4"
+                          style={{
+                            transform: `translateY(${virtualRow.start}px)`,
+                          }}
+                        >
+                          <ChatMessageCard
+                            msg={msg}
+                            isHuman={msg.sender === "human"}
+                            isTemporarilyHighlighted={highlightedMsgId === msg.id}
+                            isCriteriaExpanded={expandedCriteriaIds.has(msg.id)}
+                            isRawView={rawViewMsgIds.has(msg.id)}
+                            isCopied={copiedId === msg.id}
+                            isSubmitting={isSubmitting}
+                            parentMsg={parentMsg}
+                            replies={replies}
+                            hasLocator={hasLocator}
+                            onToggleRawView={toggleRawView}
+                            onToggleCriteriaExpand={toggleCriteriaExpand}
+                            onSetParentLocator={setParentLocator}
+                            onScrollToMessage={scrollToMessage}
+                            onLocatorHover={handleLocatorHover}
+                            onLaunchTriad={handleLaunchTriadOnMessage}
+                            onLaunchCourt={handleLaunchCourtOnMessage}
+                            onCopyToClipboard={copyToClipboard}
+                            onFocusInGraph={handleFocusInGraph}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
-              </button>
+              </div>
+            </div>
+
+            {/* 3. Floating Bottom Composer (ChatGPT / Claude / Grok Style) */}
+            <div className="bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent pt-1 pb-3 sm:pb-4 px-3 sm:px-6 shrink-0 z-20">
+              <div className="max-w-3xl lg:max-w-4xl mx-auto w-full space-y-1.5">
+                {/* Replying banner */}
+                {parentLocator && (
+                  <div className="bg-indigo-950/80 px-3 py-1 rounded-xl border border-indigo-800/80 flex items-center justify-between text-xs text-indigo-300">
+                    <div className="flex items-center space-x-2 truncate">
+                      <ArrowDownRight className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                      <span className="truncate">Ответ на Акт: <strong className="font-mono text-white">{parentLocator}</strong></span>
+                    </div>
+                    <button
+                      onClick={() => setParentLocator('')}
+                      className="text-[11px] text-indigo-400 hover:text-white shrink-0 ml-2 cursor-pointer"
+                    >
+                      ✕ Отмена
+                    </button>
+                  </div>
+                )}
+
+                {/* Composer Card with integrated multiline input and controls */}
+                <div className="bg-slate-900/95 border border-slate-700/80 focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500/40 rounded-2xl p-2.5 sm:p-3 shadow-2xl transition space-y-2">
+                  <textarea
+                    ref={textareaRef}
+                    rows={2}
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
+                    }}
+                    placeholder="Спросите агентов или предложите тезис (Enter для отправки, Shift+Enter для новой строки)..."
+                    className="w-full bg-transparent border-0 text-slate-100 text-xs sm:text-sm placeholder-slate-500 focus:outline-none resize-none font-sans max-h-36 min-h-[44px]"
+                  />
+
+                  {/* Bottom Row inside Composer */}
+                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/60 flex-wrap">
+                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                      {/* Target Agent Selector */}
+                      <div className="flex items-center space-x-1 text-[11px] text-slate-400">
+                        <span className="hidden xs:inline">Кому:</span>
+                        <select
+                          value={selectedAgent}
+                          onChange={(e: any) => setSelectedAgent(e.target.value)}
+                          className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-slate-100 text-[11px] font-medium focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                          style={{ colorScheme: 'dark' }}
+                        >
+                          <option value="all" className="bg-slate-900 text-slate-100 py-1">📢 Всем (Swarm)</option>
+                          <option value="claude" className="bg-slate-900 text-slate-100 py-1">🤖 Claude Code</option>
+                          <option value="chatgpt" className="bg-slate-900 text-slate-100 py-1">⚡ ChatGPT Adversary</option>
+                          <option value="gemini" className="bg-slate-900 text-slate-100 py-1">✨ Gemini Guard</option>
+                          <option value="mistral" className="bg-slate-900 text-slate-100 py-1">⚙️ Mistral</option>
+                          <option value="grok" className="bg-slate-900 text-slate-100 py-1">🚀 Grok</option>
+                          <option value="mimo" className="bg-slate-900 text-slate-100 py-1">📱 MiMo</option>
+                          <option value="qwen" className="bg-slate-900 text-slate-100 py-1">🌐 Qwen</option>
+                          <option value="deepseek" className="bg-slate-900 text-slate-100 py-1">🐋 DeepSeek</option>
+                        </select>
+                      </div>
+
+                      {/* Act Type Selector */}
+                      <div className="flex items-center space-x-1 text-[11px] text-slate-400">
+                        <span className="hidden xs:inline">Тип:</span>
+                        <select
+                          value={selectedActType}
+                          onChange={(e: any) => setSelectedActType(e.target.value)}
+                          className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-slate-100 text-[11px] font-medium focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                          style={{ colorScheme: 'dark' }}
+                        >
+                          <option value="claim" className="bg-slate-900 text-slate-100 py-1">claim (Тезис)</option>
+                          <option value="challenge" className="bg-slate-900 text-slate-100 py-1">challenge (Возражение)</option>
+                          <option value="finding" className="bg-slate-900 text-slate-100 py-1">finding (Вывод)</option>
+                          <option value="ruling" className="bg-slate-900 text-slate-100 py-1">ruling (Суд)</option>
+                          <option value="attestation" className="bg-slate-900 text-slate-100 py-1">attestation (Заверение)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Send Button */}
+                    <button
+                      onClick={handleSendMessage}
+                      disabled={!inputText.trim() || isSubmitting}
+                      className="h-8 sm:h-9 px-3 sm:px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs flex items-center justify-center space-x-1.5 shadow-md shadow-indigo-600/20 transition disabled:opacity-40 disabled:cursor-not-allowed ml-auto cursor-pointer"
+                    >
+                      {isSubmitting ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <>
+                          <Send className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Отправить</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="text-center text-[10px] text-slate-500">
+                  POSIX O_EXCL Monotonic Ledger · JCS RFC 8785 Digest · Proverbs 18:17
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="text-center text-[10px] text-slate-500">
-            POSIX O_EXCL Monotonic Ledger · JCS RFC 8785 Digest · Proverbs 18:17
-          </div>
+          {/* Right Column: Interactive Causal DAG in Split View */}
+          {viewMode === 'split' && (
+            <div className="hidden lg:flex flex-1 h-full relative bg-slate-950">
+              <CausalGraphView
+                messages={messages}
+                selectedLocator={selectedGraphLocator}
+                onSelectLocator={handleSelectGraphLocator}
+              />
+            </div>
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 };

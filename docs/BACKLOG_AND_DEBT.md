@@ -23,7 +23,7 @@ This document captures deep technical insights, identified technical debt, poten
 ## 📋 Part 2: Product & Technical Backlog
 
 ### 🟢 High Priority (P0 — Near-Term Milestones)
-- [ ] **Interactive Causal DAG / Lamport Graph**: Interactive visual tree / directed acyclic graph (D3.js / SVG canvas) rendering causal message chains via `parentLocator` and HLC clocks, showing argument branches, adversarial challenges, and Court resolutions with instant two-way focus between graph nodes and chat messages.
+- [x] **Interactive Causal DAG / Lamport Graph (Delivered)**: Interactive visual tree / directed acyclic graph (`CausalGraphView.tsx` with D3.js pan/zoom + SVG canvas) rendering causal message chains via `parentLocator` and HLC clocks. Features Sugiyama topological layering, dynamic agent color palettes (Claude, ChatGPT, Gemini, Mistral, Court, Grok, MiMo, Qwen, DeepSeek), ancestor/descendant lineage tracing on hover, two-way sync with virtualized chat stream, and flexible Split/Graph/Chat view modes.
 - [ ] **One-Click Invariant Cryptographic Verifier (Audit Replay)**: In-app real-time integrity verification engine validating:
   - Strict SHA-256 digests according to RFC 8785 JSON Canonicalization Scheme (JCS).
   - Monotonic physical/logical increments of Hybrid Logical Clocks ($l_m, c_m$).
