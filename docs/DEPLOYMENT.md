@@ -11,8 +11,16 @@ Three ways to run this, and they are not variations of one thing.
 Environment variables are in the [README](../README.md#environment). Two of them
 decide how exposed this is and are worth repeating: `HOST` defaults to
 `127.0.0.1` because **this process authenticates nothing**, and
-`ALLOW_AGENT_EXEC` turns on an endpoint that runs models on API keys held by the
-server with no authentication of its own.
+`ALLOW_SERVER_MODEL_CALLS` turns on the three endpoints that run models on API
+keys held by the server with no authentication of their own —
+`/api/relay/adjudicate`, `/api/relay/step-triad` and `/api/relay/agent-exec`.
+
+Until this was fixed the flag was named `ALLOW_AGENT_EXEC` and gated only the
+last of the three. The other two were reachable with it unset, so on a
+deployment whose reverse proxy asked for a password, that password was the only
+thing standing between the open internet and the server's model spend — a lock
+on the wallet that read as a lock on the data, and would have been removed with
+it. The old name still works.
 
 ## Behind a reverse proxy
 
