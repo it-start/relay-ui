@@ -135,7 +135,7 @@ export const AttestationDesk: React.FC = () => {
             </span>
             <p className="text-xs text-slate-400 flex-1">
               {via === 'webmcp-tool' &&
-                "The page reports that document.modelContext dispatched it. An agent cannot produce this value — the page can, since it authored the callback."}
+                'The page reports that document.modelContext dispatched it. An agent cannot produce this value. Any script in this origin can, since execute() is a callback the page authored.'}
               {via === 'ui-synthetic' &&
                 'Event.isTrusted was false. A scripted click, and detectably not a person.'}
               {via === 'ui-trusted' &&

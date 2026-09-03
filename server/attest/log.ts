@@ -67,7 +67,7 @@ export const DISTINGUISHES_HANDS: Record<Via, boolean> = {
 /** What each value rests on, carried into the record so a reader need not trust this file. */
 export const BASIS: Record<Via, string> = {
   'webmcp-tool':
-    "the page's report of its own dispatch path; an agent cannot produce it, the page can",
+    "the page's report of its own dispatch path; an agent cannot produce it, any script in this origin can",
   'ui-synthetic':
     'Event.isTrusted === false; the only checkable signal here, and checkable only by the page',
   'ui-trusted':
