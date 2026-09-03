@@ -64,7 +64,7 @@ the binary.
 | `PORT` | Defaults to `3000`. |
 | `NODE_ENV` | `production` serves the built client from `dist/`. Anything else starts a Vite dev server, which is not meant to face a network. `bun run start` sets it. |
 | `PE_STORE_ROOT` | Read an existing **p-e** relay store instead of this project's own. Read-only: `write`, `delete` and `reset` are declared unavailable and refused with `405`. |
-| `ALLOW_AGENT_EXEC` | `1` enables `/api/relay/agent-exec`, which runs models on API keys held by this process and has no authentication of its own. Off by default. |
+| `ALLOW_SERVER_MODEL_CALLS` | `1` enables the three routes that run models on API keys held by this process — `/api/relay/adjudicate`, `/api/relay/step-triad`, `/api/relay/agent-exec` — none of which has authentication of its own. Off by default. `ALLOW_AGENT_EXEC` is accepted as the former name. |
 
 ---
 

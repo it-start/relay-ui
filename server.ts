@@ -247,6 +247,38 @@ const RATE_MAX = Number(process.env.RATE_LIMIT_PER_MINUTE ?? 120);
 const buckets = new Map<string, { count: number; resetAt: number }>();
 
 /**
+ * May this process spend its own API keys on behalf of an unauthenticated caller?
+ *
+ * Off by default. Three routes run a model on request text using keys held here
+ * — `/api/relay/adjudicate`, `/api/relay/step-triad` and `/api/relay/agent-exec`
+ * — and every one of them is an open proxy to whatever ANTHROPIC_API_KEY,
+ * OPENAI_API_KEY, MISTRAL_API_KEY and GEMINI_API_KEY are set: arbitrary prompts
+ * billed to whoever runs the server.
+ *
+ * The rate limiter does not cover this. It bounds requests, not spend, and its
+ * default of 120/minute admits 120 model calls per IP per minute — more, since
+ * `generateWithFallback` cascades three models at two attempts each.
+ *
+ * `ALLOW_AGENT_EXEC` is honoured as the former name. It gated one of the three
+ * while the other two ran unguarded behind whatever the reverse proxy happened
+ * to be doing, which on this deployment was HTTP Basic — a lock on the wallet
+ * that looked like a lock on the data, and would have come off with it.
+ */
+const ALLOW_SERVER_MODEL_CALLS =
+  process.env.ALLOW_SERVER_MODEL_CALLS === '1' || process.env.ALLOW_AGENT_EXEC === '1';
+
+/** The 503 every model-running route returns when the flag is off. */
+function modelCallsDisabled(route: string) {
+  return {
+    error: `${route} is disabled`,
+    detail:
+      'Set ALLOW_SERVER_MODEL_CALLS=1 to enable. It runs models on server-held API keys and has no authentication of its own.',
+    alternative:
+      'Connect an agent to /api/mcp as an MCP client instead; it carries its own credentials.',
+  };
+}
+
+/**
  * Behind a reverse proxy every request arrives from the proxy, so limiting by
  * socket address would give the whole internet one shared bucket. Express reads
  * `X-Forwarded-For` only when told how far to trust it, and `true` would trust a
@@ -889,6 +921,11 @@ app.post('/api/relay/verify/:locator', async (req, res) => {
 
 // 8. Live AI Adjudication (Gemini with multi-model cascade & deterministic invariant engine)
 app.post('/api/relay/adjudicate', async (req, res) => {
+  // Spends GEMINI_API_KEY through `generateWithFallback`. Same property as
+  // agent-exec, so the same gate; it ran unguarded until now.
+  if (!ALLOW_SERVER_MODEL_CALLS) {
+    return res.status(503).json(modelCallsDisabled('adjudicate'));
+  }
   try {
     const { claim, code, invariants, parent_locator, author } = req.body;
 
@@ -993,6 +1030,11 @@ Respond in strict JSON format:
 
 // 9. Multi-Agent Triad Step Simulation (Claude -> ChatGPT -> Gemini)
 app.post('/api/relay/step-triad', async (req, res) => {
+  // Spends GEMINI_API_KEY through `generateWithFallback`. Same gate as the
+  // other two model-running routes.
+  if (!ALLOW_SERVER_MODEL_CALLS) {
+    return res.status(503).json(modelCallsDisabled('step-triad'));
+  }
   try {
     const { proposalTitle, proposalText } = req.body;
     const title = proposalTitle || 'Оптимизация параллельных записей O_EXCL';
@@ -1087,11 +1129,15 @@ app.post('/api/relay/reset', async (req, res) => {
 /**
  * Runs a model on request text using keys held by this process.
  *
- * Off unless `ALLOW_AGENT_EXEC=1`. Unauthenticated and reachable by anyone who
- * can reach the socket, it is an open proxy to whatever ANTHROPIC_API_KEY,
- * OPENAI_API_KEY, MISTRAL_API_KEY and GEMINI_API_KEY are set — arbitrary prompts
- * billed to whoever runs the server. Default-on made that the deployment's
- * normal state rather than a choice.
+ * Off unless `ALLOW_SERVER_MODEL_CALLS=1`. Unauthenticated and reachable by
+ * anyone who can reach the socket, it is an open proxy to whatever
+ * ANTHROPIC_API_KEY, OPENAI_API_KEY, MISTRAL_API_KEY and GEMINI_API_KEY are set
+ * — arbitrary prompts billed to whoever runs the server. Default-on made that
+ * the deployment's normal state rather than a choice.
+ *
+ * The same is true of `/api/relay/adjudicate` and `/api/relay/step-triad`, which
+ * this docstring used to describe as if the property were unique to this route.
+ * It never was: all three reach a model on this process's keys.
  *
  * Deleting it was the other option and was not taken: seven call sites in the
  * chat interface depend on it, and removing the endpoint removes the feature
@@ -1101,15 +1147,9 @@ app.post('/api/relay/reset', async (req, res) => {
  * agents connect *inward* as MCP clients over `/api/mcp`, carrying their own
  * credentials, and this process holds no keys at all.
  */
-const ALLOW_AGENT_EXEC = process.env.ALLOW_AGENT_EXEC === '1';
-
 app.post('/api/relay/agent-exec', async (req, res) => {
-  if (!ALLOW_AGENT_EXEC) {
-    return res.status(503).json({
-      error: 'agent-exec is disabled',
-      detail: 'Set ALLOW_AGENT_EXEC=1 to enable. It runs models on server-held API keys and has no authentication of its own.',
-      alternative: 'Connect an agent to /api/mcp as an MCP client instead; it carries its own credentials.',
-    });
+  if (!ALLOW_SERVER_MODEL_CALLS) {
+    return res.status(503).json(modelCallsDisabled('agent-exec'));
   }
   try {
     const { agent, type, title, text, payload, parent_locator } = req.body;
