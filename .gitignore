@@ -7,3 +7,6 @@ coverage/
 .env*
 !.env.example
 .relay_store/
+
+# Per-host deploy config, read by deploy.sh
+deploy.env
