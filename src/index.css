@@ -5,6 +5,13 @@
   color-scheme: dark;
 }
 
+/* Ensure all native select & option dropdowns render with dark background and crisp readable text */
+select, option, optgroup {
+  color-scheme: dark;
+  background-color: #0f172a; /* slate-900 */
+  color: #f8fafc; /* slate-50 */
+}
+
 html, body {
   overflow-x: hidden;
   max-width: 100vw;

@@ -545,20 +545,21 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
         {/* Right: Controls */}
         <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
           {/* Filter by Sender */}
-          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg px-1.5 py-0.5 text-slate-300 text-[10px]">
-            <Filter className="w-3 h-3 text-slate-400 mr-1 shrink-0" />
+          <div className="flex items-center bg-slate-900 border border-slate-700/80 rounded-lg px-2 py-0.5 text-slate-200 text-[10px] sm:text-xs">
+            <Filter className="w-3 h-3 text-slate-400 mr-1.5 shrink-0" />
             <select
               value={filterSender}
               onChange={(e) => setFilterSender(e.target.value)}
-              className="bg-transparent text-slate-300 text-[10px] font-medium focus:outline-none cursor-pointer pr-1"
+              className="bg-slate-900 text-slate-100 text-[10px] sm:text-xs font-semibold focus:outline-none cursor-pointer pr-1"
+              style={{ colorScheme: 'dark' }}
             >
-              <option value="all">Все агенты</option>
-              <option value="human">Архитектор</option>
-              <option value="claude">Claude Code</option>
-              <option value="chatgpt">ChatGPT</option>
-              <option value="gemini">Gemini Guard</option>
-              <option value="mistral">Mistral</option>
-              <option value="court">Суд (Ruling)</option>
+              <option value="all" className="bg-slate-900 text-slate-100 font-medium py-1">Все агенты</option>
+              <option value="human" className="bg-slate-900 text-slate-100 font-medium py-1">Архитектор</option>
+              <option value="claude" className="bg-slate-900 text-slate-100 font-medium py-1">Claude Code</option>
+              <option value="chatgpt" className="bg-slate-900 text-slate-100 font-medium py-1">ChatGPT</option>
+              <option value="gemini" className="bg-slate-900 text-slate-100 font-medium py-1">Gemini Guard</option>
+              <option value="mistral" className="bg-slate-900 text-slate-100 font-medium py-1">Mistral</option>
+              <option value="court" className="bg-slate-900 text-slate-100 font-medium py-1">Суд (Ruling)</option>
             </select>
           </div>
 
@@ -935,13 +936,14 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
                   <select
                     value={selectedAgent}
                     onChange={(e: any) => setSelectedAgent(e.target.value)}
-                    className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-slate-200 text-[11px] font-medium focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                    className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-slate-100 text-[11px] font-medium focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                    style={{ colorScheme: 'dark' }}
                   >
-                    <option value="all">📢 Всем (Swarm)</option>
-                    <option value="claude">🤖 Claude Code</option>
-                    <option value="chatgpt">⚡ ChatGPT Adversary</option>
-                    <option value="gemini">✨ Gemini Guard</option>
-                    <option value="mistral">⚙️ Mistral</option>
+                    <option value="all" className="bg-slate-900 text-slate-100 py-1">📢 Всем (Swarm)</option>
+                    <option value="claude" className="bg-slate-900 text-slate-100 py-1">🤖 Claude Code</option>
+                    <option value="chatgpt" className="bg-slate-900 text-slate-100 py-1">⚡ ChatGPT Adversary</option>
+                    <option value="gemini" className="bg-slate-900 text-slate-100 py-1">✨ Gemini Guard</option>
+                    <option value="mistral" className="bg-slate-900 text-slate-100 py-1">⚙️ Mistral</option>
                   </select>
                 </div>
 
@@ -951,13 +953,14 @@ export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
                   <select
                     value={selectedActType}
                     onChange={(e: any) => setSelectedActType(e.target.value)}
-                    className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-slate-200 text-[11px] font-medium focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                    className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-slate-100 text-[11px] font-medium focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                    style={{ colorScheme: 'dark' }}
                   >
-                    <option value="claim">claim (Тезис)</option>
-                    <option value="challenge">challenge (Возражение)</option>
-                    <option value="finding">finding (Вывод)</option>
-                    <option value="ruling">ruling (Суд)</option>
-                    <option value="attestation">attestation (Заверение)</option>
+                    <option value="claim" className="bg-slate-900 text-slate-100 py-1">claim (Тезис)</option>
+                    <option value="challenge" className="bg-slate-900 text-slate-100 py-1">challenge (Возражение)</option>
+                    <option value="finding" className="bg-slate-900 text-slate-100 py-1">finding (Вывод)</option>
+                    <option value="ruling" className="bg-slate-900 text-slate-100 py-1">ruling (Суд)</option>
+                    <option value="attestation" className="bg-slate-900 text-slate-100 py-1">attestation (Заверение)</option>
                   </select>
                 </div>
               </div>
