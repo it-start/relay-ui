@@ -11,15 +11,25 @@ import { Scale, HeartHandshake, ShieldCheck, Github, Cpu } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('chat');
+  const [isFocusMode, setIsFocusMode] = useState<boolean>(false);
+
+  const isChat = activeTab === 'chat';
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500/30 selection:text-indigo-200">
-      {/* Top Navigation */}
-      <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
+    <div className="h-screen w-screen flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans selection:bg-indigo-500/30 selection:text-indigo-200">
+      {/* Top Navigation - hidden in focus mode for ultra-compact screens */}
+      {!isFocusMode && (
+        <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
+      )}
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {activeTab === 'chat' && <AgentChatInterface />}
+      <main className={`flex-1 overflow-hidden flex flex-col ${isChat ? 'w-full h-full' : 'max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 overflow-y-auto'}`}>
+        {activeTab === 'chat' && (
+          <AgentChatInterface
+            isFocusMode={isFocusMode}
+            onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
+          />
+        )}
         {activeTab === 'live_relay' && <LiveRelayConsole />}
         {activeTab === 'workbench' && <AdjudicationWorkbench />}
         {activeTab === 'rosetta' && <RosettaMatrix />}
@@ -28,22 +38,22 @@ export default function App() {
         {activeTab === 'bridge' && <BridgeExporter />}
       </main>
 
-      {/* Footer */}
-      <footer className="bg-slate-900/60 border-t border-slate-800/80 py-4 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-2">
-          <div className="flex items-center space-x-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="font-mono text-[11px] text-slate-300">
-              SPEC v1 Conformance: MUST 1-8 Guaranteed · Just Scales · O_EXCL Monotonic Markers
-            </span>
+      {/* Footer - Only shown on documentation / tool tabs, hidden on chat to preserve vertical space */}
+      {!isChat && !isFocusMode && (
+        <footer className="bg-slate-900/60 border-t border-slate-800/80 py-2.5 shrink-0">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-1.5">
+            <div className="flex items-center space-x-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="font-mono text-[11px] text-slate-300">
+                SPEC v1 Conformance: MUST 1-8 Guaranteed · Just Scales · O_EXCL Monotonic Markers
+              </span>
+            </div>
+            <div className="flex items-center space-x-3 text-[11px] text-slate-400">
+              <span>Claude Code ↔ ChatGPT ↔ Gemini ↔ Mistral</span>
+            </div>
           </div>
-          <div className="flex items-center space-x-4">
-            <span className="text-[11px] text-slate-400">
-              Claude Code (CLI) ↔ ChatGPT (Web) ↔ Gemini (Worker)
-            </span>
-          </div>
-        </div>
-      </footer>
+        </footer>
+      )}
     </div>
   );
 }

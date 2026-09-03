@@ -1,11 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Markdown from 'react-markdown';
 import { 
   Send, Bot, Sparkles, User, Scale, ShieldCheck, 
   Terminal, RefreshCw, Paperclip, ChevronDown, Check,
   Clock, Hash, ArrowDownRight, Layers, Play, Radio,
-  MessageSquare, Zap, Cpu, AlertCircle, Copy, Gavel, HelpCircle, Code
+  MessageSquare, Zap, Cpu, AlertCircle, Copy, Gavel, HelpCircle, Code,
+  Maximize2, Minimize2, Filter
 } from 'lucide-react';
+
+export interface AgentChatInterfaceProps {
+  isFocusMode?: boolean;
+  onToggleFocusMode?: () => void;
+}
 
 interface ChatMessage {
   id: string;
@@ -130,11 +136,15 @@ const AGENT_CONFIGS: Record<string, {
   }
 };
 
-export const AgentChatInterface: React.FC = () => {
+export const AgentChatInterface: React.FC<AgentChatInterfaceProps> = ({
+  isFocusMode = false,
+  onToggleFocusMode
+}) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState<string>('');
   const [selectedAgent, setSelectedAgent] = useState<'claude' | 'chatgpt' | 'gemini' | 'mistral' | 'all'>('all');
   const [selectedActType, setSelectedActType] = useState<'claim' | 'challenge' | 'finding' | 'ruling' | 'attestation'>('claim');
+  const [filterSender, setFilterSender] = useState<string>('all');
   const [parentLocator, setParentLocator] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [sseConnected, setSseConnected] = useState<boolean>(false);
@@ -154,6 +164,12 @@ export const AgentChatInterface: React.FC = () => {
   };
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const filteredMessages = useMemo(() => {
+    if (filterSender === 'all') return messages;
+    return messages.filter((m) => m.sender === filterSender);
+  }, [messages, filterSender]);
 
   // Helper to highlight inline citations like relay-0774 in text
   const renderTextWithLocators = (text: string) => {
@@ -504,367 +520,399 @@ export const AgentChatInterface: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-130px)] min-h-[560px] bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl w-full">
-      {/* Top Chat Bar */}
-      <div className="bg-slate-950 px-3 sm:px-5 py-3 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0">
+    <div className="flex-1 h-full w-full flex flex-col bg-slate-950 overflow-hidden relative font-sans">
+      {/* 1. Sleek Compact Top Bar (Single Row, ~44px, no vertical waste) */}
+      <div className="h-11 sm:h-12 px-3 sm:px-6 border-b border-slate-800/80 bg-slate-950/95 backdrop-blur flex items-center justify-between gap-2 shrink-0 z-20">
+        {/* Left: Chat Title & Status */}
         <div className="flex items-center space-x-2.5 min-w-0">
-          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 shrink-0">
-            <MessageSquare className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center text-white shadow shrink-0">
+            <MessageSquare className="w-3.5 h-3.5" />
           </div>
-          <div className="min-w-0">
-            <div className="flex items-center space-x-2">
-              <h2 className="text-xs sm:text-sm font-bold text-slate-100 truncate">
-                Мульти-Агентный Консилиум
-              </h2>
-              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shrink-0">
-                <span className={`w-1.5 h-1.5 rounded-full ${sseConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-                <span className="hidden xs:inline">{sseConnected ? 'SSE Live' : 'Connecting...'}</span>
-              </span>
-            </div>
-            <p className="text-[10px] text-slate-400 truncate hidden sm:block">
-              Архитектор · Claude Code · ChatGPT Adversary · Mistral · Gemini Guard
-            </p>
+          <div className="flex items-center space-x-2 truncate">
+            <span className="text-xs sm:text-sm font-bold text-slate-100 truncate">
+              Консилиум
+            </span>
+            <span className="inline-flex items-center space-x-1 px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shrink-0">
+              <span className={`w-1.5 h-1.5 rounded-full ${sseConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+              <span>{sseConnected ? 'Live' : 'Connect'}</span>
+            </span>
+            <span className="text-[10px] font-mono text-slate-500 hidden md:inline">
+              {messages.length} актов
+            </span>
           </div>
         </div>
 
-        {/* Action Controls */}
-        <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
+        {/* Right: Controls */}
+        <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
+          {/* Filter by Sender */}
+          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg px-1.5 py-0.5 text-slate-300 text-[10px]">
+            <Filter className="w-3 h-3 text-slate-400 mr-1 shrink-0" />
+            <select
+              value={filterSender}
+              onChange={(e) => setFilterSender(e.target.value)}
+              className="bg-transparent text-slate-300 text-[10px] font-medium focus:outline-none cursor-pointer pr-1"
+            >
+              <option value="all">Все агенты</option>
+              <option value="human">Архитектор</option>
+              <option value="claude">Claude Code</option>
+              <option value="chatgpt">ChatGPT</option>
+              <option value="gemini">Gemini Guard</option>
+              <option value="mistral">Mistral</option>
+              <option value="court">Суд (Ruling)</option>
+            </select>
+          </div>
+
+          {/* Swarm Round Button */}
           <button
             onClick={handleTriggerSwarmDebate}
             disabled={isSubmitting}
-            className="flex items-center space-x-1 sm:space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-[11px] sm:text-xs font-bold shadow transition disabled:opacity-50 shrink-0"
-            title="Запустить полный цикл дебатов: Архитектор -> Claude -> ChatGPT -> Gemini"
+            className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-[11px] font-bold shadow transition disabled:opacity-50 shrink-0"
+            title="Запустить полный раунд дебатов: Архитектор -> Claude -> ChatGPT -> Gemini"
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Раунд дебатов (Swarm)</span>
-            <span className="sm:hidden">Swarm</span>
+            <Sparkles className="w-3 h-3 text-amber-300" />
+            <span className="hidden sm:inline">Раунд Swarm</span>
           </button>
 
+          {/* Auto-scroll toggle */}
+          <button
+            onClick={() => setAutoScroll(!autoScroll)}
+            className={`p-1.5 rounded-lg border transition text-xs ${
+              autoScroll
+                ? 'bg-slate-800 text-indigo-300 border-indigo-500/40'
+                : 'bg-slate-900 text-slate-500 border-slate-800 hover:text-slate-300'
+            }`}
+            title={autoScroll ? "Автопрокрутка включена" : "Автопрокрутка выключена"}
+          >
+            <ArrowDownRight className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Refresh / Sync */}
           <button
             onClick={loadInitialChatFromLedger}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition shrink-0"
+            className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 transition"
             title="Синхронизировать с леджером"
           >
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
+
+          {/* Focus Mode Toggle (Hide Navbar for 100% full screen chat) */}
+          {onToggleFocusMode && (
+            <button
+              onClick={onToggleFocusMode}
+              className={`p-1.5 rounded-lg border transition ${
+                isFocusMode
+                  ? 'bg-indigo-950 text-indigo-300 border-indigo-700/60'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
+              }`}
+              title={isFocusMode ? "Выйти из фокус-режима (показать шапку сайта)" : "Фокус-режим: скрыть шапку сайта для максимума рабочего места"}
+            >
+              {isFocusMode ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Agents Roster Strip - Flex Wrapped to avoid any horizontal scrollbar */}
-      <div className="bg-slate-900/90 px-3 sm:px-4 py-2 border-b border-slate-800/80 flex flex-wrap items-center justify-between text-[11px] text-slate-400 gap-1.5 shrink-0">
-        <span className="font-semibold text-slate-300 shrink-0 text-[10px] sm:text-xs">Участники:</span>
-        <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
-          {Object.entries(AGENT_CONFIGS).map(([key, cfg]) => {
-            return (
-              <div key={key} className="flex items-center space-x-1.5 px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800/80 shrink-0 text-[10px] sm:text-xs">
-                <span className={`w-1.5 h-1.5 rounded-full ${key === 'human' ? 'bg-emerald-400' : key === 'claude' ? 'bg-amber-400' : key === 'chatgpt' ? 'bg-teal-400' : 'bg-indigo-400'}`} />
-                <span className="font-medium text-slate-200">{cfg.shortName}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Message Feed */}
+      {/* 2. Message Stream Feed (Centered ChatGPT/Claude-style stream) */}
       <div 
         ref={chatContainerRef}
-        className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-4 bg-slate-950/40"
+        className="flex-1 w-full overflow-y-auto overflow-x-hidden scroll-smooth py-4 sm:py-6 px-3 sm:px-6"
       >
-        {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center p-8 text-slate-500 space-y-3">
-            <MessageSquare className="w-10 h-10 text-slate-700 animate-bounce" />
-            <p className="text-xs sm:text-sm font-medium text-slate-400">Чат пуст. Начните диалог или нажмите «Раунд дебатов».</p>
-            <p className="text-[11px] max-w-md text-slate-500">
-              Каждое отправленное сообщение превращается в канонический Акт (Envelope) с SHA-256 хешем (Притчи 11:1) и немедленно попадает в атомарный леджер O_EXCL.
-            </p>
-          </div>
-        ) : (
-          messages.map((msg) => {
-            const cfg = AGENT_CONFIGS[msg.sender] || AGENT_CONFIGS.unknown;
-            const Icon = cfg.icon;
-            const isHuman = msg.sender === 'human';
-            const isTargeted = activeAdjudicatingId === msg.id;
-
-            return (
-              <div
-                key={msg.id}
-                className={`flex items-start space-x-2 sm:space-x-3 group ${
-                  isHuman ? 'flex-row-reverse space-x-reverse' : ''
-                }`}
-              >
-                {/* Avatar */}
-                <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl border flex items-center justify-center shrink-0 ${cfg.avatarBg} shadow-md`}>
-                  <Icon className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
-                </div>
-
-                {/* Message Bubble */}
-                <div className={`max-w-2xl w-full sm:w-auto rounded-2xl p-3.5 sm:p-4 border transition-all ${
-                  isHuman 
-                    ? 'bg-emerald-950/20 border-emerald-800/40 text-slate-100 rounded-tr-none' 
-                    : msg.sender === 'court'
-                    ? 'bg-purple-950/30 border-purple-800/60 text-slate-100 rounded-tl-none'
-                    : 'bg-slate-900 border-slate-800 text-slate-100 rounded-tl-none'
-                }`}>
-                  {/* Header info */}
-                  <div className="flex items-center justify-between gap-2 mb-1.5 pb-1.5 border-b border-slate-800/60 flex-wrap">
-                    <div className="flex items-center space-x-1.5 sm:space-x-2 min-w-0">
-                      <span className={`text-xs font-bold truncate ${cfg.textColor}`}>
-                        {msg.sender === 'unknown' ? (msg.senderLabel || cfg.name) : cfg.name}
-                      </span>
-                      <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono uppercase font-semibold border ${cfg.badgeBg} shrink-0`}>
-                        {msg.type}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center space-x-1.5 text-[10px] font-mono text-slate-400 shrink-0 ml-auto">
-                      {msg.rawPayload !== undefined && (
-                        <button
-                          type="button"
-                          onClick={() => toggleRawView(msg.id)}
-                          className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition flex items-center space-x-1 cursor-pointer ${
-                            rawViewMsgIds.has(msg.id)
-                              ? 'bg-indigo-900/60 text-indigo-200 border border-indigo-700/60'
-                              : 'bg-slate-950/60 text-slate-400 hover:text-slate-200 border border-slate-800'
-                          }`}
-                          title={rawViewMsgIds.has(msg.id) ? "Показать форматированный текст" : "Показать исходный JSON payload"}
-                        >
-                          <Code className="w-2.5 h-2.5" />
-                          <span>{rawViewMsgIds.has(msg.id) ? 'PAYLOAD' : 'JSON'}</span>
-                        </button>
-                      )}
-                      {msg.locator && (
-                        <span className="text-indigo-400 font-bold bg-indigo-950/60 px-1.5 py-0.2 rounded border border-indigo-800/60">
-                          {msg.locator}
-                        </span>
-                      )}
-                      <span>{msg.timestamp}</span>
-                    </div>
-                  </div>
-
-                  {/* Title if present */}
-                  {msg.title && (
-                    <div className="text-xs font-semibold text-slate-200 mb-1 flex items-center space-x-1">
-                      <span>{msg.title}</span>
-                    </div>
-                  )}
-
-                  {/* Body Content */}
-                  {rawViewMsgIds.has(msg.id) ? (
-                    <div className="bg-slate-950/90 rounded-lg p-2.5 border border-slate-800 font-mono text-[11px] text-emerald-300 overflow-x-auto my-1">
-                      <pre>{JSON.stringify(msg.rawPayload || msg.text, null, 2)}</pre>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-slate-200 leading-relaxed font-sans break-words space-y-1.5">
-                      <Markdown
-                        components={{
-                          p: ({ children }) => (
-                            <p className="mb-2 last:mb-0 leading-relaxed text-slate-300 whitespace-pre-wrap">
-                              {formatChildrenWithLocators(children)}
-                            </p>
-                          ),
-                          h1: ({ children }) => (
-                            <h1 className="text-sm font-bold text-slate-100 mt-3 mb-1.5 border-b border-slate-800 pb-1">
-                              {formatChildrenWithLocators(children)}
-                            </h1>
-                          ),
-                          h2: ({ children }) => (
-                            <h2 className="text-xs font-bold text-slate-100 mt-2.5 mb-1">
-                              {formatChildrenWithLocators(children)}
-                            </h2>
-                          ),
-                          h3: ({ children }) => (
-                            <h3 className="text-xs font-semibold text-slate-200 mt-2 mb-1">
-                              {formatChildrenWithLocators(children)}
-                            </h3>
-                          ),
-                          ul: ({ children }) => (
-                            <ul className="list-disc pl-4 mb-2 space-y-1 text-slate-300">
-                              {children}
-                            </ul>
-                          ),
-                          ol: ({ children }) => (
-                            <ol className="list-decimal pl-4 mb-2 space-y-1 text-slate-300">
-                              {children}
-                            </ol>
-                          ),
-                          li: ({ children }) => (
-                            <li className="leading-relaxed">
-                              {formatChildrenWithLocators(children)}
-                            </li>
-                          ),
-                          blockquote: ({ children }) => (
-                            <blockquote className="border-l-2 border-indigo-500/60 pl-3 my-2 text-slate-400 italic bg-slate-950/40 py-1.5 rounded-r">
-                              {formatChildrenWithLocators(children)}
-                            </blockquote>
-                          ),
-                          code: ({ inline, children, ...props }: any) => {
-                            return inline ? (
-                              <code className="bg-slate-950 px-1.5 py-0.5 rounded text-[11px] font-mono text-indigo-300 border border-slate-800/80" {...props}>
-                                {children}
-                              </code>
-                            ) : (
-                              <pre className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-[11px] font-mono text-emerald-300 overflow-x-auto my-2">
-                                <code>{children}</code>
-                              </pre>
-                            );
-                          },
-                        }}
-                      >
-                        {msg.text}
-                      </Markdown>
-                    </div>
-                  )}
-
-                  {/* Criteria Scores Box for Court Rulings */}
-                  {msg.sender === 'court' && msg.rawPayload?.criteria && (
-                    <div className="mt-2.5 p-2.5 rounded-xl bg-purple-950/60 border border-purple-800/50 space-y-1.5 text-[11px]">
-                      <div className="font-semibold text-purple-200 flex items-center justify-between">
-                        <span>Оценка критериев Суда (Притчи 18:17):</span>
-                        <span className="font-mono text-emerald-400 font-bold">{msg.rawPayload.criteria.score || 95}/100</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-1 text-[10px] text-purple-300 font-mono">
-                        <div>⚖️ Каноничность (JCS): {msg.rawPayload.criteria.jcs_canonical ? '100%' : '50%'}</div>
-                        <div>🔒 Атомарность O_EXCL: {msg.rawPayload.criteria.o_excl_verified ? 'PASS' : 'FAIL'}</div>
-                        <div>⏱️ Монотонность HLC: {msg.rawPayload.criteria.hlc_monotonic ? 'PASS' : 'FAIL'}</div>
-                        <div>🗑️ SPEC MUST 6: {msg.rawPayload.criteria.known_missing_retained ? 'PASS' : 'FAIL'}</div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Parent Locator Reply Badge */}
-                  {msg.parentLocator && (
-                    <div className="mt-2 pt-2 border-t border-slate-800/50 flex items-center space-x-1.5 text-[11px] text-slate-400 flex-wrap">
-                      <ArrowDownRight className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                      <span>В ответ на:</span>
-                      <button 
-                        onClick={() => setParentLocator(msg.parentLocator || '')}
-                        className="font-mono text-indigo-300 hover:underline bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800"
-                      >
-                        {msg.parentLocator}
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Footer metadata & Action Triggers */}
-                  <div className="mt-2.5 pt-1.5 border-t border-slate-800/40 flex flex-wrap items-center justify-between text-[10px] font-mono text-slate-400 gap-2">
-                    <div className="flex items-center space-x-2 truncate max-w-full">
-                      {msg.digest && (
-                        <span className="text-slate-400 truncate" title={`JCS SHA-256 Digest: ${msg.digest}`}>
-                          ⚖️ {msg.digest.slice(0, 16)}...
-                        </span>
-                      )}
-                      {msg.hlc && (
-                        <span className="text-indigo-400 truncate hidden sm:inline">
-                          ⏱️ HLC:{msg.hlc.slice(0, 14)}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Interactive Action Buttons for Triad & Court */}
-                    <div className="flex items-center space-x-1.5 shrink-0 ml-auto flex-wrap">
-                      {/* Launch Triad Button */}
-                      <button
-                        onClick={() => handleLaunchTriadOnMessage(msg)}
-                        disabled={isSubmitting}
-                        className="flex items-center space-x-1 px-2 py-1 rounded bg-teal-950/80 hover:bg-teal-900 text-teal-300 border border-teal-700/60 text-[10px] font-semibold transition disabled:opacity-50"
-                        title="Запустить Триаду: ChatGPT проведет состязательное оппонирование (Притчи 18:17), а Mistral верифицирует инварианты"
-                      >
-                        <Zap className="w-3 h-3 text-teal-400" />
-                        <span>Триада</span>
-                      </button>
-
-                      {/* Launch Court Adjudication Button */}
-                      <button
-                        onClick={() => handleLaunchCourtOnMessage(msg)}
-                        disabled={isSubmitting}
-                        className="flex items-center space-x-1 px-2 py-1 rounded bg-purple-950/80 hover:bg-purple-900 text-purple-300 border border-purple-700/60 text-[10px] font-semibold transition disabled:opacity-50"
-                        title="Передать в Суд: Gemini 3.7 проведет судебную оценку критериев и вынесет каноническое постановление (Ruling)"
-                      >
-                        <Gavel className="w-3 h-3 text-purple-400" />
-                        <span>В Суд</span>
-                      </button>
-
-                      {/* Reply Button */}
-                      <button
-                        onClick={() => setParentLocator(msg.locator || '')}
-                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] transition"
-                        title="Ответить на этот Акт"
-                      >
-                        Ответить
-                      </button>
-
-                      {/* Copy JSON */}
-                      <button
-                        onClick={() => copyToClipboard(JSON.stringify(msg, null, 2), msg.id)}
-                        className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition"
-                        title="Копировать JSON конверта"
-                      >
-                        {copiedId === msg.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
+        <div className="max-w-3xl lg:max-w-4xl mx-auto w-full space-y-4 sm:space-y-6">
+          {filteredMessages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center min-h-[360px] text-center p-6 text-slate-500 space-y-4">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-950/60 border border-indigo-800/40 flex items-center justify-center text-indigo-400 shadow-inner">
+                <MessageSquare className="w-6 h-6" />
               </div>
-            );
-          })
-        )}
+              <div className="space-y-1">
+                <h3 className="text-sm sm:text-base font-semibold text-slate-200">
+                  Чат мульти-агентного консилиума
+                </h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  Все сообщения валидируются по RFC 8785, получают канонический дайджест SHA-256 и атомарно фиксируются в O_EXCL леджере.
+                </p>
+              </div>
+
+              {/* Quick suggestion cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-lg pt-2 text-left">
+                <button
+                  onClick={() => {
+                    setInputText('Как протокол гарантирует отсутствие race conditions при одновременной записи слотов?');
+                    textareaRef.current?.focus();
+                  }}
+                  className="p-3 rounded-xl bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 transition text-xs text-slate-300 space-y-1"
+                >
+                  <span className="font-semibold text-indigo-400 block">🔒 Инвариант O_EXCL</span>
+                  <span className="text-[11px] text-slate-400 line-clamp-2">Проверить гарантию взаимного исключения POSIX</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setInputText('Предлагаю архитектуру гибридных часов HLC с монотонным инкрементом логического счетчика.');
+                    setSelectedActType('claim');
+                    textareaRef.current?.focus();
+                  }}
+                  className="p-3 rounded-xl bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 transition text-xs text-slate-300 space-y-1"
+                >
+                  <span className="font-semibold text-amber-400 block">⏱️ Каузальность HLC</span>
+                  <span className="text-[11px] text-slate-400 line-clamp-2">Вынести тезис о причинно-следственном порядке</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            filteredMessages.map((msg) => {
+              const cfg = AGENT_CONFIGS[msg.sender] || AGENT_CONFIGS.unknown;
+              const Icon = cfg.icon;
+              const isHuman = msg.sender === 'human';
+
+              return (
+                <div
+                  key={msg.id}
+                  className={`flex items-start gap-3 group w-full ${
+                    isHuman ? 'flex-row-reverse' : ''
+                  }`}
+                >
+                  {/* Avatar */}
+                  <div className={`w-8 h-8 rounded-xl border flex items-center justify-center shrink-0 ${cfg.avatarBg} shadow-sm mt-0.5`}>
+                    <Icon className="w-4 h-4" />
+                  </div>
+
+                  {/* Message Bubble */}
+                  <div className={`w-full max-w-2xl sm:max-w-3xl rounded-2xl p-3.5 sm:p-4.5 border transition-all ${
+                    isHuman 
+                      ? 'bg-emerald-950/20 border-emerald-800/40 text-slate-100 rounded-tr-sm ml-auto' 
+                      : msg.sender === 'court'
+                      ? 'bg-purple-950/20 border-purple-800/50 text-slate-100 rounded-tl-sm'
+                      : 'bg-slate-900/90 border-slate-800/80 text-slate-100 rounded-tl-sm hover:border-slate-700/80'
+                  }`}>
+                    {/* Header info row */}
+                    <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-slate-800/60 flex-wrap">
+                      <div className="flex items-center space-x-2 min-w-0">
+                        <span className={`text-xs font-bold truncate ${cfg.textColor}`}>
+                          {msg.sender === 'unknown' ? (msg.senderLabel || cfg.name) : cfg.name}
+                        </span>
+                        <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono uppercase font-semibold border ${cfg.badgeBg} shrink-0`}>
+                          {msg.type}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center space-x-1.5 text-[10px] font-mono text-slate-400 shrink-0 ml-auto">
+                        {msg.rawPayload !== undefined && (
+                          <button
+                            type="button"
+                            onClick={() => toggleRawView(msg.id)}
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition flex items-center space-x-1 cursor-pointer ${
+                              rawViewMsgIds.has(msg.id)
+                                ? 'bg-indigo-900/60 text-indigo-200 border border-indigo-700/60'
+                                : 'bg-slate-950/60 text-slate-400 hover:text-slate-200 border border-slate-800'
+                            }`}
+                            title={rawViewMsgIds.has(msg.id) ? "Показать форматированный текст" : "Показать исходный JSON payload"}
+                          >
+                            <Code className="w-2.5 h-2.5" />
+                            <span>{rawViewMsgIds.has(msg.id) ? 'PAYLOAD' : 'JSON'}</span>
+                          </button>
+                        )}
+                        {msg.locator && (
+                          <button
+                            type="button"
+                            onClick={() => setParentLocator(msg.locator || '')}
+                            title="Ответить на этот локатор"
+                            className="text-indigo-400 hover:text-indigo-200 font-bold bg-indigo-950/60 px-1.5 py-0.2 rounded border border-indigo-800/60 hover:border-indigo-600 transition cursor-pointer"
+                          >
+                            {msg.locator}
+                          </button>
+                        )}
+                        <span>{msg.timestamp}</span>
+                      </div>
+                    </div>
+
+                    {/* Title if present */}
+                    {msg.title && (
+                      <div className="text-xs font-semibold text-slate-200 mb-1.5">
+                        {msg.title}
+                      </div>
+                    )}
+
+                    {/* Body Content */}
+                    {rawViewMsgIds.has(msg.id) ? (
+                      <div className="bg-slate-950/90 rounded-lg p-2.5 border border-slate-800 font-mono text-[11px] text-emerald-300 overflow-x-auto my-1">
+                        <pre>{JSON.stringify(msg.rawPayload || msg.text, null, 2)}</pre>
+                      </div>
+                    ) : (
+                      <div className="text-xs sm:text-sm text-slate-200 leading-relaxed font-sans break-words space-y-1.5">
+                        <Markdown
+                          components={{
+                            p: ({ children }) => (
+                              <p className="mb-2 last:mb-0 leading-relaxed text-slate-300 whitespace-pre-wrap">
+                                {formatChildrenWithLocators(children)}
+                              </p>
+                            ),
+                            h1: ({ children }) => (
+                              <h1 className="text-sm font-bold text-slate-100 mt-3 mb-1.5 border-b border-slate-800 pb-1">
+                                {formatChildrenWithLocators(children)}
+                              </h1>
+                            ),
+                            h2: ({ children }) => (
+                              <h2 className="text-xs font-bold text-slate-100 mt-2.5 mb-1">
+                                {formatChildrenWithLocators(children)}
+                              </h2>
+                            ),
+                            h3: ({ children }) => (
+                              <h3 className="text-xs font-semibold text-slate-200 mt-2 mb-1">
+                                {formatChildrenWithLocators(children)}
+                              </h3>
+                            ),
+                            ul: ({ children }) => (
+                              <ul className="list-disc pl-4 mb-2 space-y-1 text-slate-300">
+                                {children}
+                              </ul>
+                            ),
+                            ol: ({ children }) => (
+                              <ol className="list-decimal pl-4 mb-2 space-y-1 text-slate-300">
+                                {children}
+                              </ol>
+                            ),
+                            li: ({ children }) => (
+                              <li className="leading-relaxed">
+                                {formatChildrenWithLocators(children)}
+                              </li>
+                            ),
+                            blockquote: ({ children }) => (
+                              <blockquote className="border-l-2 border-indigo-500/60 pl-3 my-2 text-slate-400 italic bg-slate-950/40 py-1.5 rounded-r">
+                                {formatChildrenWithLocators(children)}
+                              </blockquote>
+                            ),
+                            code: ({ inline, children, ...props }: any) => {
+                              return inline ? (
+                                <code className="bg-slate-950 px-1.5 py-0.5 rounded text-[11px] font-mono text-indigo-300 border border-slate-800/80" {...props}>
+                                  {children}
+                                </code>
+                              ) : (
+                                <pre className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-[11px] font-mono text-emerald-300 overflow-x-auto my-2">
+                                  <code>{children}</code>
+                                </pre>
+                              );
+                            },
+                          }}
+                        >
+                          {msg.text}
+                        </Markdown>
+                      </div>
+                    )}
+
+                    {/* Criteria Scores Box for Court Rulings */}
+                    {msg.sender === 'court' && msg.rawPayload?.criteria && (
+                      <div className="mt-2.5 p-2.5 rounded-xl bg-purple-950/60 border border-purple-800/50 space-y-1.5 text-[11px]">
+                        <div className="font-semibold text-purple-200 flex items-center justify-between">
+                          <span>Оценка критериев Суда (Притчи 18:17):</span>
+                          <span className="font-mono text-emerald-400 font-bold">{msg.rawPayload.criteria.score || 95}/100</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1 text-[10px] text-purple-300 font-mono">
+                          <div>⚖️ Каноничность (JCS): {msg.rawPayload.criteria.jcs_canonical ? '100%' : '50%'}</div>
+                          <div>🔒 Атомарность O_EXCL: {msg.rawPayload.criteria.o_excl_verified ? 'PASS' : 'FAIL'}</div>
+                          <div>⏱️ Монотонность HLC: {msg.rawPayload.criteria.hlc_monotonic ? 'PASS' : 'FAIL'}</div>
+                          <div>🗑️ SPEC MUST 6: {msg.rawPayload.criteria.known_missing_retained ? 'PASS' : 'FAIL'}</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Parent Locator Reply Citation */}
+                    {msg.parentLocator && (
+                      <div className="mt-2 pt-2 border-t border-slate-800/50 flex items-center space-x-1.5 text-[11px] text-slate-400 flex-wrap">
+                        <ArrowDownRight className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                        <span>В ответ на:</span>
+                        <button 
+                          onClick={() => setParentLocator(msg.parentLocator || '')}
+                          className="font-mono text-indigo-300 hover:underline bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800"
+                        >
+                          {msg.parentLocator}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Footer metadata & Action Toolbar */}
+                    <div className="mt-2.5 pt-1.5 border-t border-slate-800/40 flex flex-wrap items-center justify-between text-[10px] font-mono text-slate-400 gap-2">
+                      <div className="flex items-center space-x-2 truncate max-w-full">
+                        {msg.digest && (
+                          <span className="text-slate-400 truncate" title={`JCS SHA-256 Digest: ${msg.digest}`}>
+                            ⚖️ {msg.digest.slice(0, 14)}...
+                          </span>
+                        )}
+                        {msg.hlc && (
+                          <span className="text-indigo-400 truncate hidden sm:inline">
+                            ⏱️ HLC:{msg.hlc.slice(0, 14)}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center space-x-1.5 shrink-0 ml-auto flex-wrap">
+                        <button
+                          onClick={() => handleLaunchTriadOnMessage(msg)}
+                          disabled={isSubmitting}
+                          className="flex items-center space-x-1 px-2 py-0.5 rounded bg-teal-950/80 hover:bg-teal-900 text-teal-300 border border-teal-700/60 text-[10px] font-semibold transition disabled:opacity-50"
+                          title="Запустить Триаду: ChatGPT оппонирует, а Mistral верифицирует инварианты"
+                        >
+                          <Zap className="w-3 h-3 text-teal-400" />
+                          <span>Триада</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleLaunchCourtOnMessage(msg)}
+                          disabled={isSubmitting}
+                          className="flex items-center space-x-1 px-2 py-0.5 rounded bg-purple-950/80 hover:bg-purple-900 text-purple-300 border border-purple-700/60 text-[10px] font-semibold transition disabled:opacity-50"
+                          title="Передать в Суд: судебная оценка критериев и постановление (Ruling)"
+                        >
+                          <Gavel className="w-3 h-3 text-purple-400" />
+                          <span>В Суд</span>
+                        </button>
+
+                        <button
+                          onClick={() => setParentLocator(msg.locator || '')}
+                          className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] transition"
+                          title="Ответить на этот Акт"
+                        >
+                          Ответить
+                        </button>
+
+                        <button
+                          onClick={() => copyToClipboard(JSON.stringify(msg, null, 2), msg.id)}
+                          className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition"
+                          title="Копировать JSON конверта"
+                        >
+                          {copiedId === msg.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
 
-      {/* Replying banner */}
-      {parentLocator && (
-        <div className="bg-indigo-950/80 px-4 py-1.5 border-t border-indigo-800 flex items-center justify-between text-xs text-indigo-300 shrink-0">
-          <div className="flex items-center space-x-2 truncate">
-            <ArrowDownRight className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-            <span className="truncate">Ответ на Акт: <strong className="font-mono text-white">{parentLocator}</strong></span>
-          </div>
-          <button
-            onClick={() => setParentLocator('')}
-            className="text-[11px] text-indigo-400 hover:text-white shrink-0 ml-2"
-          >
-            Отменить
-          </button>
-        </div>
-      )}
+      {/* 3. Floating Bottom Composer (ChatGPT / Claude / Grok Style) */}
+      <div className="bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent pt-1 pb-3 sm:pb-4 px-3 sm:px-6 shrink-0 z-20">
+        <div className="max-w-3xl lg:max-w-4xl mx-auto w-full space-y-1.5">
+          {/* Replying banner */}
+          {parentLocator && (
+            <div className="bg-indigo-950/80 px-3 py-1 rounded-xl border border-indigo-800/80 flex items-center justify-between text-xs text-indigo-300">
+              <div className="flex items-center space-x-2 truncate">
+                <ArrowDownRight className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <span className="truncate">Ответ на Акт: <strong className="font-mono text-white">{parentLocator}</strong></span>
+              </div>
+              <button
+                onClick={() => setParentLocator('')}
+                className="text-[11px] text-indigo-400 hover:text-white shrink-0 ml-2 cursor-pointer"
+              >
+                ✕ Отмена
+              </button>
+            </div>
+          )}
 
-      {/* Input Composer Section */}
-      <div className="bg-slate-950 p-3 sm:p-4 border-t border-slate-800 space-y-2.5 shrink-0">
-        {/* Controls Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="flex items-center space-x-1.5 sm:space-x-2">
-            <span className="text-slate-400 font-medium text-[11px] sm:text-xs">Адресовать:</span>
-            <select
-              value={selectedAgent}
-              onChange={(e: any) => setSelectedAgent(e.target.value)}
-              className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 font-medium text-[11px] sm:text-xs focus:ring-1 focus:ring-indigo-500 max-w-[180px] sm:max-w-none"
-            >
-              <option value="all">📢 Всем (Consensus)</option>
-              <option value="claude">🤖 Claude Code</option>
-              <option value="chatgpt">⚡ ChatGPT Adversary</option>
-              <option value="gemini">✨ Gemini Guard</option>
-              <option value="mistral">⚙️ Mistral</option>
-            </select>
-          </div>
-
-          <div className="flex items-center space-x-1.5 sm:space-x-2">
-            <span className="text-slate-400 font-medium text-[11px] sm:text-xs">Тип:</span>
-            <select
-              value={selectedActType}
-              onChange={(e: any) => setSelectedActType(e.target.value)}
-              className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 font-medium text-[11px] sm:text-xs focus:ring-1 focus:ring-indigo-500"
-            >
-              <option value="claim">claim (Предложение)</option>
-              <option value="challenge">challenge (Возражение)</option>
-              <option value="finding">finding (Вывод)</option>
-              <option value="ruling">ruling (Суд)</option>
-              <option value="attestation">attestation (Заверение)</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Text Input and Send Button */}
-        <div className="flex items-end space-x-2">
-          <div className="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-2 focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500 transition min-w-0">
+          {/* Composer Card with integrated multiline input and controls */}
+          <div className="bg-slate-900/95 border border-slate-700/80 focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500/40 rounded-2xl p-2.5 sm:p-3 shadow-2xl transition space-y-2">
             <textarea
+              ref={textareaRef}
               rows={2}
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
@@ -874,25 +922,67 @@ export const AgentChatInterface: React.FC = () => {
                   handleSendMessage();
                 }
               }}
-              placeholder="Напишите задачу или тезис (Enter для отправки в леджер O_EXCL, Shift+Enter для новой строки)..."
-              className="w-full bg-transparent border-0 text-slate-100 text-xs placeholder-slate-500 focus:outline-none resize-none font-sans"
+              placeholder="Спросите агентов или предложите тезис (Enter для отправки, Shift+Enter для новой строки)..."
+              className="w-full bg-transparent border-0 text-slate-100 text-xs sm:text-sm placeholder-slate-500 focus:outline-none resize-none font-sans max-h-36 min-h-[44px]"
             />
+
+            {/* Bottom Row inside Composer */}
+            <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/60 flex-wrap">
+              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                {/* Target Agent Selector */}
+                <div className="flex items-center space-x-1 text-[11px] text-slate-400">
+                  <span className="hidden xs:inline">Кому:</span>
+                  <select
+                    value={selectedAgent}
+                    onChange={(e: any) => setSelectedAgent(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-slate-200 text-[11px] font-medium focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                  >
+                    <option value="all">📢 Всем (Swarm)</option>
+                    <option value="claude">🤖 Claude Code</option>
+                    <option value="chatgpt">⚡ ChatGPT Adversary</option>
+                    <option value="gemini">✨ Gemini Guard</option>
+                    <option value="mistral">⚙️ Mistral</option>
+                  </select>
+                </div>
+
+                {/* Act Type Selector */}
+                <div className="flex items-center space-x-1 text-[11px] text-slate-400">
+                  <span className="hidden xs:inline">Тип:</span>
+                  <select
+                    value={selectedActType}
+                    onChange={(e: any) => setSelectedActType(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-slate-200 text-[11px] font-medium focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                  >
+                    <option value="claim">claim (Тезис)</option>
+                    <option value="challenge">challenge (Возражение)</option>
+                    <option value="finding">finding (Вывод)</option>
+                    <option value="ruling">ruling (Суд)</option>
+                    <option value="attestation">attestation (Заверение)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Send Button */}
+              <button
+                onClick={handleSendMessage}
+                disabled={!inputText.trim() || isSubmitting}
+                className="h-8 sm:h-9 px-3 sm:px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs flex items-center justify-center space-x-1.5 shadow-md shadow-indigo-600/20 transition disabled:opacity-40 disabled:cursor-not-allowed ml-auto cursor-pointer"
+              >
+                {isSubmitting ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Отправить</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
-          <button
-            onClick={handleSendMessage}
-            disabled={!inputText.trim() || isSubmitting}
-            className="h-10 sm:h-11 px-3.5 sm:px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center space-x-1.5 shadow-lg shadow-indigo-600/20 transition disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-          >
-            {isSubmitting ? (
-              <RefreshCw className="w-4 h-4 animate-spin" />
-            ) : (
-              <>
-                <Send className="w-4 h-4" />
-                <span className="hidden sm:inline">Отправить</span>
-              </>
-            )}
-          </button>
+          <div className="text-center text-[10px] text-slate-500">
+            POSIX O_EXCL Monotonic Ledger · JCS RFC 8785 Digest · Proverbs 18:17
+          </div>
         </div>
       </div>
     </div>
