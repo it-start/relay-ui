@@ -20,7 +20,16 @@ export interface ToolAnnotations {
   readOnlyHint?: boolean;
   untrustedContentHint?: boolean;
   consequentialHint?: boolean;
-  // No `idempotentHint`. MCP has one; WebMCP dropped it, which is why
+  // No `idempotentHint`. MCP has one; WebMCP dropped it.
+  //
+  // `consequentialHint` does not stand in for it. The spec defines it as
+  // "significant, real-world, or non-reversible, ex: booking a flight,
+  // transferring money" — a disjunction, so `true` says at least one of three
+  // things holds and never which. An agent cannot read "do not retry" out of it.
+  //
+  // And note what those examples are: booking a flight and transferring money
+  // are the canonical non-idempotent operations. The spec names the hazard in
+  // its own examples and dropped the field that addresses it. Which is why
   // `approve_proposal` below has to answer a retry with a conflict rather than
   // letting the agent check first.
 }
