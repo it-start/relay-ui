@@ -446,8 +446,20 @@ export const LiveRelayConsole: React.FC = () => {
         })
       });
 
-      const data = await res.json();
-      if (res.ok) {
+      let data: any = null;
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        data = await res.json().catch(() => null);
+      } else {
+        const rawText = await res.text().catch(() => '');
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          data = { error: 'Неверный ответ сервера (non-JSON)' };
+        }
+      }
+
+      if (res.ok && data && !data.error) {
         const engineLabel = data.modelUsed?.includes('fallback') 
           ? 'SPEC Invariant Engine (Zero-Latency Rule Guard)' 
           : (data.modelUsed || 'Gemini 3.7 Flash');

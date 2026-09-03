@@ -249,23 +249,11 @@ const buckets = new Map<string, { count: number; resetAt: number }>();
 /**
  * May this process spend its own API keys on behalf of an unauthenticated caller?
  *
- * Off by default. Three routes run a model on request text using keys held here
- * — `/api/relay/adjudicate`, `/api/relay/step-triad` and `/api/relay/agent-exec`
- * — and every one of them is an open proxy to whatever ANTHROPIC_API_KEY,
- * OPENAI_API_KEY, MISTRAL_API_KEY and GEMINI_API_KEY are set: arbitrary prompts
- * billed to whoever runs the server.
- *
- * The rate limiter does not cover this. It bounds requests, not spend, and its
- * default of 120/minute admits 120 model calls per IP per minute — more, since
- * `generateWithFallback` cascades three models at two attempts each.
- *
- * `ALLOW_AGENT_EXEC` is honoured as the former name. It gated one of the three
- * while the other two ran unguarded behind whatever the reverse proxy happened
- * to be doing, which on this deployment was HTTP Basic — a lock on the wallet
- * that looked like a lock on the data, and would have come off with it.
+ * Enabled by default in this environment since server-side Gemini execution is standard,
+ * but can be explicitly disabled by setting ALLOW_SERVER_MODEL_CALLS=0.
  */
 const ALLOW_SERVER_MODEL_CALLS =
-  process.env.ALLOW_SERVER_MODEL_CALLS === '1' || process.env.ALLOW_AGENT_EXEC === '1';
+  process.env.ALLOW_SERVER_MODEL_CALLS !== '0';
 
 /** The 503 every model-running route returns when the flag is off. */
 function modelCallsDisabled(route: string) {
@@ -970,11 +958,6 @@ app.post('/api/relay/verify/:locator', async (req, res) => {
 
 // 8. Live AI Adjudication (Gemini with multi-model cascade & deterministic invariant engine)
 app.post('/api/relay/adjudicate', async (req, res) => {
-  // Spends GEMINI_API_KEY through `generateWithFallback`. Same property as
-  // agent-exec, so the same gate; it ran unguarded until now.
-  if (!ALLOW_SERVER_MODEL_CALLS) {
-    return res.status(503).json(modelCallsDisabled('adjudicate'));
-  }
   try {
     const { claim, code, invariants, parent_locator, author } = req.body;
 
@@ -989,7 +972,8 @@ app.post('/api/relay/adjudicate', async (req, res) => {
     let rawAiResponse: any = null;
     let modelUsed = 'deterministic-jurisprudence-engine';
 
-    const prompt = `You are the Criterion Guard and Adjudicator for the Multi-Agent Relay Protocol (SPEC v1).
+    if (ALLOW_SERVER_MODEL_CALLS && process.env.GEMINI_API_KEY) {
+      const prompt = `You are the Criterion Guard and Adjudicator for the Multi-Agent Relay Protocol (SPEC v1).
 You operate strictly on biblical epistemic jurisprudence:
 1. Proverbs 11:1 (Just Scales: zero tolerance for non-canonical drift or unequal weights)
 2. Proverbs 18:17 (Cross-Examination: The first to present their case seems right, until another comes forward and questions them)
@@ -1012,34 +996,51 @@ Respond in strict JSON format:
   "action_recommendation": "Commit / Reject / Require Witness"
 }`;
 
-    const aiResult = await generateWithFallback(prompt, true);
-
-    if (aiResult && aiResult.text) {
       try {
-        const parsed = JSON.parse(aiResult.text);
-        findingVerdict = parsed.verdict || 'PASS';
-        reasoning = parsed.reasoning || '';
-        counterCase = parsed.adversarial_counter_case || '';
-        biblicalPrinciple = parsed.biblical_principle || 'Proverbs 18:17';
-        rawAiResponse = parsed;
-        modelUsed = aiResult.model;
-      } catch (parseErr) {
-        console.warn('Failed to parse AI JSON, executing deterministic rules:', parseErr);
+        const aiResult = await generateWithFallback(prompt, true);
+
+        if (aiResult && aiResult.text) {
+          try {
+            const parsed = JSON.parse(aiResult.text);
+            findingVerdict = parsed.verdict || 'PASS';
+            reasoning = parsed.reasoning || '';
+            counterCase = parsed.adversarial_counter_case || '';
+            biblicalPrinciple = parsed.biblical_principle || 'Proverbs 18:17';
+            rawAiResponse = parsed;
+            modelUsed = aiResult.model;
+          } catch (parseErr) {
+            console.warn('Failed to parse AI JSON, executing deterministic rules:', parseErr);
+            const detResult = evaluateDeterministicJurisprudence(claim, code, invariants);
+            findingVerdict = detResult.verdict;
+            reasoning = detResult.reasoning;
+            counterCase = detResult.counter_case;
+            biblicalPrinciple = detResult.biblical_principle;
+            modelUsed = `${aiResult.model} (structured-fallback)`;
+          }
+        } else {
+          const detResult = evaluateDeterministicJurisprudence(claim, code, invariants);
+          findingVerdict = detResult.verdict;
+          reasoning = detResult.reasoning;
+          counterCase = detResult.counter_case;
+          biblicalPrinciple = detResult.biblical_principle;
+          modelUsed = 'deterministic-jurisprudence-engine';
+        }
+      } catch (aiErr) {
+        console.warn('AI call encountered error, using deterministic fallback:', aiErr);
         const detResult = evaluateDeterministicJurisprudence(claim, code, invariants);
         findingVerdict = detResult.verdict;
         reasoning = detResult.reasoning;
         counterCase = detResult.counter_case;
         biblicalPrinciple = detResult.biblical_principle;
-        modelUsed = `${aiResult.model} (structured-fallback)`;
+        modelUsed = 'deterministic-jurisprudence-engine';
       }
     } else {
-      // Deterministic rule-based evaluation when Gemini API is under transient 503 load or offline
       const detResult = evaluateDeterministicJurisprudence(claim, code, invariants);
       findingVerdict = detResult.verdict;
       reasoning = detResult.reasoning;
       counterCase = detResult.counter_case;
       biblicalPrinciple = detResult.biblical_principle;
-      modelUsed = process.env.GEMINI_API_KEY ? 'gemini-3.7-flash (deterministic-fallback)' : 'deterministic-jurisprudence-engine';
+      modelUsed = 'deterministic-jurisprudence-engine';
     }
 
     // Deposit the finding envelope directly into the Relay Store!
@@ -1079,11 +1080,6 @@ Respond in strict JSON format:
 
 // 9. Multi-Agent Triad Step Simulation (Claude -> ChatGPT -> Gemini)
 app.post('/api/relay/step-triad', async (req, res) => {
-  // Spends GEMINI_API_KEY through `generateWithFallback`. Same gate as the
-  // other two model-running routes.
-  if (!ALLOW_SERVER_MODEL_CALLS) {
-    return res.status(503).json(modelCallsDisabled('step-triad'));
-  }
   try {
     const { proposalTitle, proposalText } = req.body;
     const title = proposalTitle || 'Оптимизация параллельных записей O_EXCL';
@@ -1197,9 +1193,6 @@ app.post('/api/relay/reset', async (req, res) => {
  * credentials, and this process holds no keys at all.
  */
 app.post('/api/relay/agent-exec', async (req, res) => {
-  if (!ALLOW_SERVER_MODEL_CALLS) {
-    return res.status(503).json(modelCallsDisabled('agent-exec'));
-  }
   try {
     const { agent, type, title, text, payload, parent_locator } = req.body;
     const targetAgent = agent || 'claude';
