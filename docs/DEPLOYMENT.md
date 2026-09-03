@@ -79,13 +79,27 @@ works; only one of them keeps working.
 
 **`Restart=` does not know the code changed.** It restarts a process that died;
 after a `git pull` the running one keeps serving the bundle it started with.
-Updating is an explicit step, and `deploy/deploy.sh.example` is it:
+Updating is an explicit step, and `./deploy.sh` is it:
 
 ```
 git pull → install → typecheck → build → store checks → restart → verify
 ```
 
 `set -euo pipefail`, so a failing build never reaches the restart.
+
+Paths differ per host, so the script reads them from `deploy.env` beside it —
+untracked, because a committed file holding one host's paths is a file every
+other host has to remember not to use. `APP_DIR`, `UNIT`, `PE_STORE_ROOT`,
+`HEALTH_URL`; the script's header carries a block to copy.
+
+Check `HEALTH_URL` against the unit rather than assuming `127.0.0.1`. A service
+with `HOST` set to something else does not answer there, and the health check
+would fail on a deployment that is working.
+
+This used to be `deploy/deploy.sh.example`, a template to copy. On at least one
+host nobody copied it, so updating meant reassembling the command from memory —
+and the step that exists because `Restart=` cannot notice new code is a poor one
+to reconstruct by hand.
 
 A systemd `.path` unit watching `dist/` would restart automatically and is
 deliberately not used: a build writes many files over several seconds, so the
