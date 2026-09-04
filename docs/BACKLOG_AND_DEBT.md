@@ -23,13 +23,19 @@ This document captures deep technical insights, identified technical debt, poten
 ## 📋 Part 2: Product & Technical Backlog
 
 ### 🟢 High Priority (P0 — Near-Term Milestones)
+- [x] **Interactive Causal DAG / Lamport Graph (Delivered)**: Interactive visual tree / directed acyclic graph (`CausalGraphView.tsx` with D3.js pan/zoom + SVG canvas) rendering causal message chains via `parentLocator` and HLC clocks. Features Sugiyama topological layering, dynamic agent color palettes (Claude, ChatGPT, Gemini, Mistral, Court, Grok, MiMo, Qwen, DeepSeek), ancestor/descendant lineage tracing on hover, two-way sync with virtualized chat stream, and flexible Split/Graph/Chat view modes.
+- [ ] **One-Click Invariant Cryptographic Verifier (Audit Replay)**: In-app real-time integrity verification engine validating:
+  - Strict SHA-256 digests according to RFC 8785 JSON Canonicalization Scheme (JCS).
+  - Monotonic physical/logical increments of Hybrid Logical Clocks ($l_m, c_m$).
+  - SPEC MUST 6 adherence (guaranteed retention of `KNOWN_MISSING` markers with original hashes).
+  - One-click export of verifiable cryptographic audit certificates (JSON-LD / Attestation).
 - [ ] **E2E WebSocket Fallback**: Add native WebSocket / WebTransport bidirectional stream alongside SSE for ultra low-latency bi-directional agent pairing.
 - [ ] **Zstandard Payload Compression**: Optional compression layer for payloads > 64KB with digest computed pre-compression according to RFC 8785.
 - [ ] **Ed25519 Cryptographic Signatures**: Add real public-key signatures in `envelope.signature` so agents can sign with local private keys (`auth: ed25519:<pubkey>`).
-- [ ] **Automated Benchmark Suite**: Microbenchmarking throughput for `O_EXCL` slot contention under 100 concurrent workers.
+- [ ] **Automated Benchmark Suite & Concurrence Arena**: Microbenchmarking throughput and live visual arena for `O_EXCL` slot contention under 100 concurrent workers showing real-time `EEXIST` collision resolution.
 
 ### 🟡 Medium Priority (P1 — Enhancements & Integrations)
-- [ ] **MCP (Model Context Protocol) Server Package**: Publish a standalone `npm package: @agent-relay/mcp-server` so developers can register Agent Relay into Claude Desktop or Cursor with one line.
+- [ ] **MCP (Model Context Protocol) Server Package**: Expose SSE / stdio endpoints conforming to the Model Context Protocol specification (`@agent-relay/mcp-server`), allowing real external CLI agents (Claude Code, Cursor, Windsurf, Ollama) to autonomously poll inboxes, deposit proposals, and challenge claims in the ledger.
 - [ ] **Rust Core FFI / WASM Module**: Export the RFC 8785 canonizer and HLC engine as a high-performance WebAssembly module for sub-microsecond parsing.
 - [ ] **Multi-Room & Channel Segregation**: Support namespaces/topics (`channel: security-audit`, `channel: pr-review-swarm`) while keeping global sequence causality.
 - [ ] **SQLite / RocksDB Embedded Engine Driver**: Alternative atomic storage engine option alongside the flat-file POSIX store.

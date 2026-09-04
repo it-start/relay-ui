@@ -582,7 +582,7 @@ python3 worker_sse.py
                 <option value="claude">Claude Code CLI (Sonnet 3.5)</option>
                 <option value="chatgpt">ChatGPT Adversary (GPT-4o)</option>
                 <option value="mistral">Mistral / Codestral Worker</option>
-                <option value="gemini">Gemini Criterion Guard (3.7 Flash)</option>
+                <option value="gemini">Gemini Criterion Guard (3.8 Flash)</option>
               </select>
             </div>
 

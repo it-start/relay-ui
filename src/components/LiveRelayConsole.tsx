@@ -446,8 +446,20 @@ export const LiveRelayConsole: React.FC = () => {
         })
       });
 
-      const data = await res.json();
-      if (res.ok) {
+      let data: any = null;
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        data = await res.json().catch(() => null);
+      } else {
+        const rawText = await res.text().catch(() => '');
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          data = { error: 'Неверный ответ сервера (non-JSON)' };
+        }
+      }
+
+      if (res.ok && data && !data.error) {
         const engineLabel = data.modelUsed?.includes('fallback') 
           ? 'SPEC Invariant Engine (Zero-Latency Rule Guard)' 
           : (data.modelUsed || 'Gemini 3.7 Flash');
@@ -692,7 +704,7 @@ export const LiveRelayConsole: React.FC = () => {
             <div className="flex items-center space-x-1.5 mt-1.5">
               <span className="w-2 h-2 rounded-full bg-indigo-400" />
               <span className="text-xs font-semibold text-slate-200 truncate">
-                {status?.geminiAvailable ? '3.7 Flash' : 'Deterministic'}
+                {status?.geminiAvailable ? '3.8 Flash' : 'Deterministic'}
               </span>
             </div>
           </div>
@@ -730,7 +742,7 @@ export const LiveRelayConsole: React.FC = () => {
               >
                 <option value="agent:claude-code-cli">🟣 Claude Code (CLI / Proposer)</option>
                 <option value="agent:chatgpt-adversary">🟢 ChatGPT (Web / Adversary)</option>
-                <option value="agent:gemini-criterion-guard">🔵 Gemini 3.7 (Criterion Guard)</option>
+                <option value="agent:gemini-criterion-guard">🔵 Gemini 3.8 (Criterion Guard)</option>
                 <option value="agent:human-architect">👤 Human Architect (User UI)</option>
               </select>
             </div>

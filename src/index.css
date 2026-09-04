@@ -53,3 +53,13 @@ html, body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Chat rendering performance optimizations */
+.chat-message-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 140px;
+}
+
+.locator-hovered-highlight {
+  transition: all 0.15s ease;
+}
