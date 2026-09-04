@@ -981,6 +981,13 @@ app.post('/api/relay/verify/:locator', async (req, res) => {
 
 // 8. Live AI Adjudication (Gemini with multi-model cascade & deterministic invariant engine)
 app.post('/api/relay/adjudicate', async (req, res) => {
+  // This one kept an inline `ALLOW_SERVER_MODEL_CALLS &&` on its model branch, so
+  // it degraded to the deterministic engine rather than spending. Refusing at the
+  // door anyway: a caller that asked for adjudication should be told the model is
+  // off, not handed a deterministic verdict that looks like the real thing.
+  if (!ALLOW_SERVER_MODEL_CALLS) {
+    return res.status(503).json(modelCallsDisabled('adjudicate'));
+  }
   try {
     const { claim, code, invariants, parent_locator, author } = req.body;
 
@@ -1103,6 +1110,10 @@ Respond in strict JSON format:
 
 // 9. Multi-Agent Triad Step Simulation (Claude -> ChatGPT -> Gemini)
 app.post('/api/relay/step-triad', async (req, res) => {
+  // Reaches a model through `generateWithFallback`, and deposits on the way.
+  if (!ALLOW_SERVER_MODEL_CALLS) {
+    return res.status(503).json(modelCallsDisabled('step-triad'));
+  }
   try {
     const { proposalTitle, proposalText } = req.body;
     const title = proposalTitle || 'Оптимизация параллельных записей O_EXCL';
@@ -1216,6 +1227,9 @@ app.post('/api/relay/reset', async (req, res) => {
  * credentials, and this process holds no keys at all.
  */
 app.post('/api/relay/agent-exec', async (req, res) => {
+  if (!ALLOW_SERVER_MODEL_CALLS) {
+    return res.status(503).json(modelCallsDisabled('agent-exec'));
+  }
   try {
     const { agent, type, title, text, payload, parent_locator } = req.body;
     const targetAgent = agent || 'claude';
