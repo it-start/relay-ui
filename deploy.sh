@@ -20,6 +20,12 @@
 #     PE_STORE_ROOT=/srv/p-e/relay
 #     HEALTH_URL=http://127.0.0.1:3777/api/relay/status
 #
+# `deploy.env` CONFIGURES THIS SCRIPT, NOT THE SERVICE. It is sourced here, so
+# the names above reach `deploy.sh`; the server is a systemd unit that carries
+# its own `Environment=` lines and never sees them. Runtime settings —
+# `ALLOW_SERVER_MODEL_CALLS`, `RATE_LIMIT_PER_MINUTE`, `HOST`, `PORT` — belong in
+# the unit. Putting one here looks like it worked and does nothing.
+#
 # HEALTH_URL is worth checking against the unit rather than assuming: a service
 # with HOST set to something other than 127.0.0.1 does not answer there, and the
 # health check would fail on a deployment that is working.

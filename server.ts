@@ -250,11 +250,33 @@ const buckets = new Map<string, { count: number; resetAt: number }>();
 /**
  * May this process spend its own API keys on behalf of an unauthenticated caller?
  *
- * Enabled by default in this environment since server-side Gemini execution is standard,
- * but can be explicitly disabled by setting ALLOW_SERVER_MODEL_CALLS=0.
+ * OFF BY DEFAULT. Three routes run a model on request text using keys held here
+ * — `/api/relay/adjudicate`, `/api/relay/step-triad` and `/api/relay/agent-exec`
+ * — and every one of them is an open proxy to whatever ANTHROPIC_API_KEY,
+ * OPENAI_API_KEY, MISTRAL_API_KEY and GEMINI_API_KEY are set: arbitrary prompts
+ * billed to whoever runs the server.
+ *
+ * The rate limiter above does not cover this. It bounds REQUESTS, not SPEND, and
+ * its default of 120/minute admits 120 model calls per IP per minute — more,
+ * since `generateWithFallback` cascades three models at two attempts each.
+ *
+ * `ALLOW_AGENT_EXEC` is honoured as the former name. It gated one of the three
+ * while the other two ran unguarded behind whatever the reverse proxy happened
+ * to be doing, which on this deployment was HTTP Basic — a lock on the wallet
+ * that looked like a lock on the data, and would have come off with it.
+ *
+ * IT DID COME OFF. Basic was removed from Caddy on 2026-09-03 precisely because
+ * these three were closed, so this default is now the only thing holding.
+ *
+ * A deployment that wants them open says so in its own unit —
+ * `Environment=ALLOW_SERVER_MODEL_CALLS=1` — and NOT in `deploy.env`, which is
+ * sourced by `deploy.sh` for its own use and never reaches the service. That is
+ * where a deployment preference belongs: the code default cannot know whether it
+ * is running behind a proxy, on a laptop, or on a public host, and only one of
+ * those answers is safe to assume.
  */
 const ALLOW_SERVER_MODEL_CALLS =
-  process.env.ALLOW_SERVER_MODEL_CALLS !== '0';
+  process.env.ALLOW_SERVER_MODEL_CALLS === '1' || process.env.ALLOW_AGENT_EXEC === '1';
 
 /** The 503 every model-running route returns when the flag is off. */
 function modelCallsDisabled(route: string) {
