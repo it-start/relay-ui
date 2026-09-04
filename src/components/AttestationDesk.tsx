@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ShieldCheck, ShieldAlert, ShieldQuestion, Bot, Hand, Plug, PlugZap, RefreshCw } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, ShieldQuestion, Bot, Hand, Plug, PlugZap, RefreshCw, Terminal } from 'lucide-react';
 import { registerRelayTools, webmcpAvailable, postAct } from '../lib/webmcp';
 
-type Via = 'webmcp-tool' | 'ui-synthetic' | 'ui-trusted';
+type Via = 'webmcp-tool' | 'ui-synthetic' | 'ui-trusted' | 'direct-http';
 
 interface Act {
   id: string;
@@ -32,6 +32,11 @@ const VIA_STYLE: Record<Via, { label: string; icon: React.ReactNode; cls: string
     label: 'unknown hand',
     icon: <ShieldQuestion className="w-3.5 h-3.5" />,
     cls: 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+  },
+  'direct-http': {
+    label: 'no page involved',
+    icon: <Terminal className="w-3.5 h-3.5" />,
+    cls: 'bg-slate-500/15 text-slate-300 border-slate-500/40'
   }
 };
 
@@ -140,6 +145,8 @@ export const AttestationDesk: React.FC = () => {
                 'Event.isTrusted was false. A scripted click, and detectably not a person.'}
               {via === 'ui-trusted' &&
                 'Event.isTrusted was true. The human, or an agent driving the browser. No party can tell — this is webmcp#288.'}
+              {via === 'direct-http' &&
+                'No page was involved: curl, a script, another server. Added because its absence forced a lie — see act-0003.'}
             </p>
           </div>
         ))}

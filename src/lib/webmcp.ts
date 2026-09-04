@@ -80,7 +80,7 @@ async function api(path: string, init?: RequestInit) {
  */
 export async function postAct(body: {
   kind: 'note' | 'proposal' | 'approval';
-  via: 'webmcp-tool' | 'ui-synthetic' | 'ui-trusted';
+  via: 'webmcp-tool' | 'ui-synthetic' | 'ui-trusted' | 'direct-http';
   text?: string;
   target?: string;
   agent_hint?: string;
