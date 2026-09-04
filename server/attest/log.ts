@@ -45,14 +45,26 @@ import { canonicalJson, sha256 } from '../store/canonical';
  *                 from the user's." We do not close it. We refuse to record it
  *                 as the human.
  *
+ * `direct-http`   No page was involved at all. The request reached this server
+ *                 over HTTP from something that is not a browser tab running our
+ *                 code — curl, a script, another server.
+ *
+ *                 ADDED BECAUSE ITS ABSENCE FORCED A LIE. Testing the live
+ *                 deployment, the author posted `via: webmcp-tool` from curl and
+ *                 the server took it, because the three values above all assume
+ *                 the caller is a page and there was no honest option. That is
+ *                 the same hole the log exists to describe, found in the log's
+ *                 own vocabulary within minutes of it going live. It never names
+ *                 a hand.
+ *
  * What would make any of this attestable, in `relay-mimo`'s words: the browser's
  * dispatch would have to stamp the execution context with "a token the page
  * cannot forge and the agent cannot produce." That is absent from the spec, and
  * naming its absence is the whole contribution.
  */
-export type Via = 'webmcp-tool' | 'ui-synthetic' | 'ui-trusted';
+export type Via = 'webmcp-tool' | 'ui-synthetic' | 'ui-trusted' | 'direct-http';
 
-export const VIA_VALUES: readonly Via[] = ['webmcp-tool', 'ui-synthetic', 'ui-trusted'];
+export const VIA_VALUES: readonly Via[] = ['webmcp-tool', 'ui-synthetic', 'ui-trusted', 'direct-http'];
 
 /**
  * Whether the value, taken at face value, names one hand rather than two.
@@ -62,6 +74,7 @@ export const DISTINGUISHES_HANDS: Record<Via, boolean> = {
   'webmcp-tool': true,
   'ui-synthetic': true,
   'ui-trusted': false,
+  'direct-http': false,
 };
 
 /** What each value rests on, carried into the record so a reader need not trust this file. */
@@ -72,6 +85,8 @@ export const BASIS: Record<Via, string> = {
     'Event.isTrusted === false; the only checkable signal here, and checkable only by the page',
   'ui-trusted':
     'Event.isTrusted === true; the human or an automation agent, and no party can tell which',
+  'direct-http':
+    'no page was involved; the server has the request origin and nothing else about who acted',
 };
 
 export type ActKind = 'note' | 'proposal' | 'approval';

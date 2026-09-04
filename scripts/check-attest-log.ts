@@ -43,6 +43,13 @@ check('and says why in the record', /no party can tell/.test(approval.basis), ap
 const synthetic = log.append({ kind: 'note', text: 'scripted', via: 'ui-synthetic' }, null);
 check('a scripted click is detectably not a human', synthetic.distinguishes_hands === true);
 
+// Added after the live deployment took `via: webmcp-tool` from curl, because the
+// three browser-shaped values left no honest one for a request with no page
+// behind it. It must never name a hand.
+const direct = log.append({ kind: 'note', text: 'from a script', via: 'direct-http' }, 'https://relay.zae.life');
+check('a request with no page names no hand', direct.distinguishes_hands === false);
+check('and says the server has only the origin', /origin and nothing else/.test(direct.basis), direct.basis);
+
 let rejected = false;
 try {
   log.append({ kind: 'note', text: 'x', via: 'human' as any }, null);

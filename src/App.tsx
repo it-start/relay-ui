@@ -11,7 +11,10 @@ import { AttestationDesk } from './components/AttestationDesk';
 import { Scale, HeartHandshake, ShieldCheck, Github, Cpu } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabType>('chat');
+  // Lands on the attestation desk rather than the chat. A visitor arriving with
+  // an agent — which is who this deployment is for — should meet the thing the
+  // agent can act on, not a chat they have to navigate away from.
+  const [activeTab, setActiveTab] = useState<TabType>('attest');
   const [isFocusMode, setIsFocusMode] = useState<boolean>(false);
 
   const isChat = activeTab === 'chat';
