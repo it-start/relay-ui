@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { 
   Scale, Sparkles, Binary, ShieldAlert, Terminal, 
-  BookOpen, Radio, MessageSquare, Menu, X 
+  BookOpen, Radio, MessageSquare, Menu, X, ShieldQuestion 
 } from 'lucide-react';
 
-export type TabType = 'chat' | 'live_relay' | 'workbench' | 'rosetta' | 'envelope' | 'sandbox' | 'bridge';
+export type TabType = 'chat' | 'live_relay' | 'workbench' | 'rosetta' | 'envelope' | 'sandbox' | 'bridge' | 'attest';
 
 interface NavbarProps {
   activeTab: TabType;
@@ -60,6 +60,14 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
       shortLabel: 'MCP', 
       fullLabel: 'Мосты и MCP', 
       icon: <Terminal className="w-4 h-4 text-cyan-400 shrink-0" /> 
+    },
+    { 
+      id: 'attest', 
+      shortLabel: 'Рука', 
+      fullLabel: 'Чья рука (WebMCP)', 
+      icon: <ShieldQuestion className="w-4 h-4 text-rose-400 shrink-0" />,
+      badge: 'WebMCP',
+      badgeColor: 'bg-rose-500/20 text-rose-300 border-rose-500/30'
     },
   ];
 
