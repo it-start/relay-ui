@@ -14,62 +14,78 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const navItems: { id: TabType; shortLabel: string; fullLabel: string; icon: React.ReactNode; badge?: string; badgeColor?: string }[] = [
-    { 
-      id: 'chat', 
-      shortLabel: 'Чат', 
-      fullLabel: 'Чат Агентов', 
-      icon: <MessageSquare className="w-4 h-4 text-indigo-400 shrink-0" />, 
-      badge: 'Live',
-      badgeColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
-    },
-    { 
-      id: 'live_relay', 
-      shortLabel: 'Леджер', 
-      fullLabel: 'Леджер Релея', 
-      icon: <Radio className="w-4 h-4 text-emerald-400 shrink-0" />, 
-      badge: 'SPEC',
-      badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-    },
-    { 
-      id: 'workbench', 
-      shortLabel: 'Суд', 
-      fullLabel: 'Судилище (Court)', 
-      icon: <Scale className="w-4 h-4 text-purple-400 shrink-0" />
-    },
-    { 
-      id: 'rosetta', 
-      shortLabel: 'Матрица', 
-      fullLabel: 'Розеттский Камень', 
-      icon: <BookOpen className="w-4 h-4 text-blue-400 shrink-0" /> 
-    },
-    { 
-      id: 'envelope', 
-      shortLabel: 'Весы', 
-      fullLabel: 'Весы & RFC8785', 
-      icon: <Binary className="w-4 h-4 text-amber-400 shrink-0" /> 
-    },
-    { 
-      id: 'sandbox', 
-      shortLabel: 'Сбои', 
-      fullLabel: 'Failure Sandbox', 
-      icon: <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" /> 
-    },
-    { 
-      id: 'bridge', 
-      shortLabel: 'MCP', 
-      fullLabel: 'Мосты и MCP', 
-      icon: <Terminal className="w-4 h-4 text-cyan-400 shrink-0" /> 
-    },
+  /**
+   * VISIBLE_TABS is the whole edit. Every tab below still exists, still routes,
+   * and still renders — this list decides which reach the header.
+   *
+   * `chat` is out for this deployment rather than for good. It calls
+   * `/api/relay/agent-exec` six times and `/api/relay/adjudicate` once, and both
+   * answer 503 here because model calls are opt-in and this process holds no
+   * keys; it also deposits, which the p-e store refuses because it is
+   * append-only and written through its own guarded path. A "Live" badge over a
+   * feature that returns errors in every direction is worse than an absent tab.
+   *
+   * The right fix is to make it say so — agents connect INWARD over /api/mcp
+   * carrying their own credentials — and then it comes back.
+   */
+  const VISIBLE_TABS: TabType[] = ['attest', 'live_relay', 'bridge'];
+
+  const allNavItems: { id: TabType; shortLabel: string; fullLabel: string; icon: React.ReactNode; badge?: string; badgeColor?: string }[] = [
     { 
       id: 'attest', 
-      shortLabel: 'Рука', 
-      fullLabel: 'Чья рука (WebMCP)', 
+      shortLabel: 'Hand', 
+      fullLabel: 'Whose hand', 
       icon: <ShieldQuestion className="w-4 h-4 text-rose-400 shrink-0" />,
       badge: 'WebMCP',
       badgeColor: 'bg-rose-500/20 text-rose-300 border-rose-500/30'
     },
+    { 
+      id: 'live_relay', 
+      shortLabel: 'Ledger', 
+      fullLabel: 'Relay ledger', 
+      icon: <Radio className="w-4 h-4 text-emerald-400 shrink-0" />, 
+      badge: 'LIVE',
+      badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+    },
+    { 
+      id: 'bridge', 
+      shortLabel: 'MCP', 
+      fullLabel: 'Bridges & MCP', 
+      icon: <Terminal className="w-4 h-4 text-cyan-400 shrink-0" /> 
+    },
+    { 
+      id: 'chat', 
+      shortLabel: 'Chat', 
+      fullLabel: 'Agent chat', 
+      icon: <MessageSquare className="w-4 h-4 text-indigo-400 shrink-0" />
+    },
+    { 
+      id: 'workbench', 
+      shortLabel: 'Court', 
+      fullLabel: 'Adjudication', 
+      icon: <Scale className="w-4 h-4 text-purple-400 shrink-0" />
+    },
+    { 
+      id: 'rosetta', 
+      shortLabel: 'Rosetta', 
+      fullLabel: 'Rosetta matrix', 
+      icon: <BookOpen className="w-4 h-4 text-blue-400 shrink-0" /> 
+    },
+    { 
+      id: 'envelope', 
+      shortLabel: 'Scales', 
+      fullLabel: 'Scales & RFC 8785', 
+      icon: <Binary className="w-4 h-4 text-amber-400 shrink-0" /> 
+    },
+    { 
+      id: 'sandbox', 
+      shortLabel: 'Sandbox', 
+      fullLabel: 'Failure sandbox', 
+      icon: <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" /> 
+    },
   ];
+
+  const navItems = allNavItems.filter((item) => VISIBLE_TABS.includes(item.id));
 
   return (
     <header className="bg-slate-900/95 backdrop-blur border-b border-slate-800 sticky top-0 z-40 w-full overflow-hidden shrink-0">

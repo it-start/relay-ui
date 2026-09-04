@@ -39,9 +39,9 @@ export const BridgeExporter: React.FC = () => {
       from: 'agent:claude-code-cli',
       to: 'all',
       type: 'claim',
-      title: 'Предложение: внедрение строгой канонизации',
+      title: 'Proposal: enforce strict canonicalisation',
       payload: {
-        proposal: 'Внедрить обязательную проверку RFC 8785 JCS дайджестов на всех входящих актах.',
+        proposal: 'Require RFC 8785 JCS digest verification on every incoming act.',
         priority: 'high'
       }
     }, null, 2)
@@ -52,9 +52,9 @@ export const BridgeExporter: React.FC = () => {
   // Multi-Agent Execution Dispatcher State
   const [dispatchAgent, setDispatchAgent] = useState<'claude' | 'chatgpt' | 'mistral' | 'gemini'>('claude');
   const [dispatchType, setDispatchType] = useState<'claim' | 'challenge' | 'finding' | 'ruling' | 'attestation'>('claim');
-  const [dispatchTitle, setDispatchTitle] = useState<string>('Проверка параллельной записи');
+  const [dispatchTitle, setDispatchTitle] = useState<string>('Concurrent write check');
   const [dispatchText, setDispatchText] = useState<string>(
-    'Предложение: оптимизировать проверку монотонных маркеров O_EXCL через batch-lookup.'
+    'Proposal: batch-lookup the monotonic O_EXCL marker check.'
   );
   const [dispatchParentLocator, setDispatchParentLocator] = useState<string>('');
   const [isDispatching, setIsDispatching] = useState<boolean>(false);
@@ -323,25 +323,25 @@ export function allocateSequenceOExcl(historyDir: string): number {
 }
 `;
 
-  const quickstartText = `# Быстрый старт: подключение внешних LLM агентов
+  const quickstartText = `# Quick start: connecting external LLM agents
 
-## 1. Подключение Claude Code CLI
-Выполните в вашем терминале:
+## 1. Connect Claude Code CLI
+Run this in your terminal:
 \`\`\`bash
 ${mcpConfig?.claudeCliCommand || 'claude mcp add --transport http agent-relay http://localhost:3000/api/mcp'}
 \`\`\`
 
-## 2. Подключение Claude Desktop (~/.claude/mcp.json)
+## 2. Connect Claude Desktop (~/.claude/mcp.json)
 \`\`\`json
 ${JSON.stringify(mcpConfig?.claudeDesktopConfig || {}, null, 2)}
 \`\`\`
 
-## 3. Подключение Cursor IDE (.cursor/mcp.json)
+## 3. Connect Cursor IDE (.cursor/mcp.json)
 \`\`\`json
 ${JSON.stringify(mcpConfig?.cursorMcpConfig || {}, null, 2)}
 \`\`\`
 
-## 4. Запуск Python демона с SSE слушателем
+## 4. Run the Python daemon with an SSE listener
 \`\`\`bash
 export RELAY_BASE_URL="${mcpConfig?.baseUrl || 'http://localhost:3000'}"
 python3 worker_sse.py
@@ -360,7 +360,7 @@ python3 worker_sse.py
             <div>
               <div className="flex items-center space-x-2">
                 <h2 className="text-lg font-bold text-slate-100">
-                  Мульти-агентный Центр: MCP Сервер и SSE Поток
+                  Multi-agent hub: MCP server and SSE stream
                 </h2>
                 <span className="px-2 py-0.5 text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-full flex items-center space-x-1">
                   <span className={`w-1.5 h-1.5 rounded-full ${sseConnected ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
@@ -368,7 +368,7 @@ python3 worker_sse.py
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Реальное подключение <strong className="text-slate-200">Claude Code CLI</strong>, <strong className="text-slate-200">Cursor</strong>, <strong className="text-slate-200">ChatGPT</strong> и внешних агентов через стандартный протокол <code className="text-indigo-300 font-mono">MCP (JSON-RPC 2.0)</code> и <code className="text-indigo-300 font-mono">Server-Sent Events (SSE)</code>.
+                Connect <strong className="text-slate-200">Claude Code CLI</strong>, <strong className="text-slate-200">Cursor</strong> and <strong className="text-slate-200">ChatGPT</strong> over <code className="text-indigo-300 font-mono">MCP (JSON-RPC 2.0)</code> and <code className="text-indigo-300 font-mono">Server-Sent Events (SSE)</code>.
               </p>
             </div>
           </div>
@@ -380,7 +380,7 @@ python3 worker_sse.py
               className="flex items-center space-x-1 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loadingConfig ? 'animate-spin' : ''}`} />
-              <span>Обновить конфигурацию</span>
+              <span>Refresh configuration</span>
             </button>
           </div>
         </div>
@@ -396,7 +396,7 @@ python3 worker_sse.py
             }`}
           >
             <Radio className="w-3.5 h-3.5 text-indigo-300" />
-            <span>1. Подключение Claude / Cursor</span>
+            <span>1. Connect Claude / Cursor</span>
           </button>
 
           <button
@@ -408,7 +408,7 @@ python3 worker_sse.py
             }`}
           >
             <Zap className="w-3.5 h-3.5 text-amber-300" />
-            <span>2. Диспетчер Агентов (Claude, ChatGPT, Mistral)</span>
+            <span>2. Agent dispatcher (Claude, ChatGPT, Mistral)</span>
           </button>
 
           <button
@@ -432,7 +432,7 @@ python3 worker_sse.py
             }`}
           >
             <Activity className="w-3.5 h-3.5 text-purple-300" />
-            <span>4. Монитор SSE Потока ({sseEvents.length})</span>
+            <span>4. SSE stream monitor ({sseEvents.length})</span>
           </button>
 
           <button
@@ -444,7 +444,7 @@ python3 worker_sse.py
             }`}
           >
             <FileCode className="w-3.5 h-3.5 text-slate-300" />
-            <span>5. Исходный код демонов</span>
+            <span>5. Daemon source</span>
           </button>
         </div>
       </div>
@@ -467,18 +467,18 @@ python3 worker_sse.py
                   className="flex items-center space-x-1 px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition"
                 >
                   {copiedText === 'claude-cli' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                  <span>{copiedText === 'claude-cli' ? 'Скопировано!' : 'Копировать'}</span>
+                  <span>{copiedText === 'claude-cli' ? 'Copied' : 'Copy'}</span>
                 </button>
               </div>
               <p className="text-xs text-slate-400">
-                Запустите в терминале для автоматического добавления инструмента в Claude Code через SSE:
+                Run in a terminal to add the tool to Claude Code over SSE:
               </p>
               <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 font-mono text-xs text-emerald-400 break-all select-all">
                 {mcpConfig?.claudeCliCommand || 'claude mcp add --transport http agent-relay http://localhost:3000/api/mcp'}
               </div>
               <div className="text-[11px] text-slate-500 flex items-center space-x-1">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Предоставляет инструменты: <code className="text-indigo-300">relay_publish_act</code>, <code className="text-indigo-300">relay_read_inbox</code>, <code className="text-indigo-300">relay_request_adjudication</code></span>
+                <span>Provides the tools: <code className="text-indigo-300">relay_publish_act</code>, <code className="text-indigo-300">relay_read_inbox</code>, <code className="text-indigo-300">relay_request_adjudication</code></span>
               </div>
             </div>
 
@@ -496,11 +496,11 @@ python3 worker_sse.py
                   className="flex items-center space-x-1 px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium transition"
                 >
                   {copiedText === 'claude-desktop' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                  <span>{copiedText === 'claude-desktop' ? 'Скопировано!' : 'Копировать JSON'}</span>
+                  <span>{copiedText === 'claude-desktop' ? 'Copied' : 'Copy JSON'}</span>
                 </button>
               </div>
               <p className="text-xs text-slate-400">
-                Вставьте в файл конфигурации Claude Desktop:
+                Paste into the Claude Desktop configuration file:
               </p>
               <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 font-mono text-[11px] text-purple-300 overflow-x-auto max-h-36">
                 <pre>{JSON.stringify(mcpConfig?.claudeDesktopConfig || {}, null, 2)}</pre>
@@ -521,11 +521,11 @@ python3 worker_sse.py
                   className="flex items-center space-x-1 px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium transition"
                 >
                   {copiedText === 'cursor-mcp' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                  <span>{copiedText === 'cursor-mcp' ? 'Скопировано!' : 'Копировать JSON'}</span>
+                  <span>{copiedText === 'cursor-mcp' ? 'Copied' : 'Copy JSON'}</span>
                 </button>
               </div>
               <p className="text-xs text-slate-400">
-                Добавьте в настройки MCP Cursor IDE (SSE Transport):
+                Add to Cursor IDE MCP settings (SSE transport):
               </p>
               <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 font-mono text-[11px] text-amber-300 overflow-x-auto max-h-36">
                 <pre>{JSON.stringify(mcpConfig?.cursorMcpConfig || {}, null, 2)}</pre>
@@ -538,7 +538,7 @@ python3 worker_sse.py
                 <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
                   <Activity className="w-4 h-4" />
                 </div>
-                <h3 className="text-sm font-bold text-slate-200">Активные URL Релея</h3>
+                <h3 className="text-sm font-bold text-slate-200">Live relay URLs</h3>
               </div>
               <div className="space-y-2 text-xs font-mono">
                 <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
@@ -564,16 +564,15 @@ python3 worker_sse.py
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-5">
           <div>
             <h3 className="text-sm font-bold text-slate-200">
-              Живой Диспетчер Мульти-Агентов (Multi-Agent Act Dispatcher)
+              Multi-agent act dispatcher
             </h3>
             <p className="text-xs text-slate-400 mt-1">
-              Отправьте реальный Акт от имени любого агента. Сервер сгенерирует ответ (через подключенный API провайдера либо детерминированный движок), присвоит O_EXCL маркер, вычислит JCS дайджест (Притчи 11:1) и мгновенно оповестит всех подписчиков по SSE.
-            </p>
+              Send a real act as any agent. The server generates a reply (via a connected API provider, or the deterministic engine) and commits it to the ledger. </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="text-xs font-medium text-slate-300 block mb-1.5">Агент-отправитель:</label>
+              <label className="text-xs font-medium text-slate-300 block mb-1.5">Sending agent:</label>
               <select
                 value={dispatchAgent}
                 onChange={(e: any) => setDispatchAgent(e.target.value)}
@@ -587,25 +586,25 @@ python3 worker_sse.py
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-300 block mb-1.5">Тип Акта (SPEC v1):</label>
+              <label className="text-xs font-medium text-slate-300 block mb-1.5">Act type (SPEC v1):</label>
               <select
                 value={dispatchType}
                 onChange={(e: any) => setDispatchType(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-slate-200"
               >
-                <option value="claim">claim (Предложение / Тезис)</option>
-                <option value="challenge">challenge (Возражение / Контр-пример)</option>
-                <option value="finding">finding (Вывод / Оценка)</option>
-                <option value="ruling">ruling (Постановление Суда)</option>
-                <option value="attestation">attestation (Заверение свидетеля)</option>
+                <option value="claim">claim (proposal / thesis)</option>
+                <option value="challenge">challenge (objection / counter-case)</option>
+                <option value="finding">finding (conclusion / assessment)</option>
+                <option value="ruling">ruling (court decision)</option>
+                <option value="attestation">attestation (witness statement)</option>
               </select>
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-300 block mb-1.5">Родительский локатор (Parent):</label>
+              <label className="text-xs font-medium text-slate-300 block mb-1.5">Parent locator:</label>
               <input
                 type="text"
-                placeholder="relay-0001 (опционально)"
+                placeholder="relay-0001 (optional)"
                 value={dispatchParentLocator}
                 onChange={(e) => setDispatchParentLocator(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 font-mono text-xs text-slate-200"
@@ -615,7 +614,7 @@ python3 worker_sse.py
 
           <div className="space-y-3">
             <div>
-              <label className="text-xs font-medium text-slate-300 block mb-1">Заголовок Акта:</label>
+              <label className="text-xs font-medium text-slate-300 block mb-1">Act title:</label>
               <input
                 type="text"
                 value={dispatchTitle}
@@ -625,7 +624,7 @@ python3 worker_sse.py
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-300 block mb-1">Содержание / Промпт для агента:</label>
+              <label className="text-xs font-medium text-slate-300 block mb-1">Content / prompt for the agent:</label>
               <textarea
                 rows={3}
                 value={dispatchText}
@@ -640,21 +639,21 @@ python3 worker_sse.py
               className="flex items-center space-x-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold shadow-md transition disabled:opacity-50"
             >
               <Send className="w-3.5 h-3.5" />
-              <span>{isDispatching ? 'Выполняется запрос к агенту...' : `Отправить Акт от ${dispatchAgent.toUpperCase()} в Леджер`}</span>
+              <span>{isDispatching ? 'Calling the agent…' : `Send act as ${dispatchAgent.toUpperCase()} to the ledger`}</span>
             </button>
           </div>
 
           {dispatchResult && (
             <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-emerald-400">Результат депонирования:</span>
+                <span className="text-xs font-bold text-emerald-400">Deposit result:</span>
                 <span className="text-[11px] font-mono text-indigo-300">{dispatchResult.locator}</span>
               </div>
               <div className="text-[11px] font-mono text-slate-400">
-                Провайдер: <span className="text-slate-200">{dispatchResult.provider}</span>
+                Provider: <span className="text-slate-200">{dispatchResult.provider}</span>
               </div>
               <div className="text-[11px] font-mono text-slate-400">
-                Дайджест: <span className="text-emerald-300">{dispatchResult.digest}</span>
+                Digest: <span className="text-emerald-300">{dispatchResult.digest}</span>
               </div>
               <div className="bg-slate-900 p-3 rounded border border-slate-800/80 font-mono text-xs text-slate-200 overflow-x-auto max-h-40">
                 <pre>{JSON.stringify(dispatchResult.envelope?.payload, null, 2)}</pre>
@@ -670,10 +669,10 @@ python3 worker_sse.py
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-bold text-slate-200">
-                Интерактивный MCP Sandbox (JSON-RPC 2.0 over HTTP/SSE)
+                Interactive MCP sandbox (JSON-RPC 2.0 over HTTP/SSE)
               </h3>
               <p className="text-xs text-slate-400">
-                Тестируйте вызовы инструментов MCP напрямую к эндпоинту <code className="text-indigo-300">POST /api/mcp</code>.
+                Call MCP tools directly against <code className="text-indigo-300">POST /api/mcp</code>.
               </p>
             </div>
             <div className="flex items-center space-x-2">
@@ -707,7 +706,7 @@ python3 worker_sse.py
                 className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition disabled:opacity-50"
               >
                 <Play className="w-3.5 h-3.5" />
-                <span>{isExecutingRpc ? 'Отправка...' : 'Выполнить RPC'}</span>
+                <span>{isExecutingRpc ? 'Sending…' : 'Run RPC'}</span>
               </button>
             </div>
           </div>
@@ -715,7 +714,7 @@ python3 worker_sse.py
           {mcpMethod === 'tools/call' && (
             <div>
               <label className="text-xs font-medium text-slate-400 block mb-1">
-                JSON Аргументы для <span className="text-indigo-300 font-mono">{selectedTool}</span>:
+                JSON arguments for <span className="text-indigo-300 font-mono">{selectedTool}</span>:
               </label>
               <textarea
                 rows={6}
@@ -729,13 +728,13 @@ python3 worker_sse.py
           {mcpRpcResponse && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-300">JSON-RPC Ответ сервера:</span>
+                <span className="text-xs font-bold text-slate-300">JSON-RPC server response:</span>
                 <button
                   onClick={() => copyToClipboard(mcpRpcResponse, 'rpc-res')}
                   className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center space-x-1"
                 >
                   {copiedText === 'rpc-res' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                  <span>{copiedText === 'rpc-res' ? 'Скопировано' : 'Копировать ответ'}</span>
+                  <span>{copiedText === 'rpc-res' ? 'Copied' : 'Copy response'}</span>
                 </button>
               </div>
               <div className="bg-slate-950 p-4 rounded-lg border border-slate-800 font-mono text-xs text-emerald-300 overflow-x-auto max-h-72">
@@ -752,10 +751,10 @@ python3 worker_sse.py
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-bold text-slate-200">
-                Монитор реального времени Server-Sent Events (/api/relay/events)
+                Real-time Server-Sent Events monitor (/api/relay/events)
               </h3>
               <p className="text-xs text-slate-400">
-                Каждое действие в системе немедленно транслируется через постоянный HTTP SSE стрим.
+                Every action in the system is broadcast immediately over a persistent HTTP SSE stream.
               </p>
             </div>
             <div className="flex items-center space-x-2">
@@ -767,13 +766,13 @@ python3 worker_sse.py
                     : 'bg-slate-800 text-slate-300 border-slate-700'
                 }`}
               >
-                {ssePaused ? 'Возобновить стрим' : 'Пауза'}
+                {ssePaused ? 'Resume stream' : 'Pause'}
               </button>
               <button
                 onClick={() => setSseEvents([])}
                 className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition"
               >
-                Очистить
+                Clear
               </button>
             </div>
           </div>
@@ -781,7 +780,7 @@ python3 worker_sse.py
           <div className="space-y-2 max-h-[500px] overflow-y-auto">
             {sseEvents.length === 0 ? (
               <div className="bg-slate-950 p-8 rounded-lg border border-slate-800 text-center text-xs text-slate-500">
-                Событий пока нет. Создайте Акт или отправьте сообщение через диспетчер.
+                No events yet. Publish an act or send a message through the dispatcher.
               </div>
             ) : (
               sseEvents.map((ev) => (
@@ -817,7 +816,7 @@ python3 worker_sse.py
               <Server className="w-5 h-5 text-indigo-400 mt-0.5 shrink-0" />
               <div>
                 <div className="text-xs font-bold text-slate-200">worker_sse.py</div>
-                <p className="text-[11px] text-slate-400 mt-0.5">Python SSE слушатель и автоматический воркер</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Python SSE listener and automatic worker</p>
               </div>
             </button>
 
@@ -832,7 +831,7 @@ python3 worker_sse.py
               <FileCode className="w-5 h-5 text-emerald-400 mt-0.5 shrink-0" />
               <div>
                 <div className="text-xs font-bold text-slate-200">mcp_config.json</div>
-                <p className="text-[11px] text-slate-400 mt-0.5">MCP Протокол для Claude Code CLI и Cursor</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">MCP protocol for Claude Code CLI and Cursor</p>
               </div>
             </button>
 
@@ -847,7 +846,7 @@ python3 worker_sse.py
               <FileCode className="w-5 h-5 text-amber-400 mt-0.5 shrink-0" />
               <div>
                 <div className="text-xs font-bold text-slate-200">store_engine.ts</div>
-                <p className="text-[11px] text-slate-400 mt-0.5">Эталонный O_EXCL Log Engine (SPEC v1)</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Reference O_EXCL log engine (SPEC v1)</p>
               </div>
             </button>
 
@@ -862,7 +861,7 @@ python3 worker_sse.py
               <FileCode className="w-5 h-5 text-purple-400 mt-0.5 shrink-0" />
               <div>
                 <div className="text-xs font-bold text-slate-200">QUICKSTART.md</div>
-                <p className="text-[11px] text-slate-400 mt-0.5">Руководство по запуску реальных агентов</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Guide to running real agents</p>
               </div>
             </button>
           </div>
@@ -887,7 +886,7 @@ python3 worker_sse.py
                   className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition"
                 >
                   {copiedText === 'export-file' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedText === 'export-file' ? 'Скопировано!' : 'Копировать файл'}</span>
+                  <span>{copiedText === 'export-file' ? 'Copied' : 'Copy file'}</span>
                 </button>
               </div>
 
