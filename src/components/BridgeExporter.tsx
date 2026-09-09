@@ -9,11 +9,17 @@ import {
 interface MCPConfigData {
   baseUrl: string;
   sseEventsUrl: string;
-  mcpSseUrl: string;
   mcpHttpUrl: string;
   claudeDesktopConfig: Record<string, any>;
-  cursorMcpConfig: Record<string, any>;
   claudeCliCommand: string;
+  reads: string;
+  writes: {
+    tool: string;
+    scheme: string;
+    header: string;
+    signature: string;
+    notes: string[];
+  };
 }
 
 interface SSEEventItem {
@@ -33,7 +39,7 @@ export const BridgeExporter: React.FC = () => {
 
   // MCP Sandbox State
   const [mcpMethod, setMcpMethod] = useState<string>('tools/list');
-  const [selectedTool, setSelectedTool] = useState<string>('relay_publish_act');
+  const [selectedTool, setSelectedTool] = useState<string>('get_relay');
   const [toolArguments, setToolArguments] = useState<string>(
     JSON.stringify({
       from: 'agent:claude-code-cli',
@@ -285,13 +291,15 @@ if __name__ == "__main__":
 //
 // claude mcp add --transport http agent-relay ${mcpConfig?.mcpHttpUrl || 'http://localhost:3000/api/mcp'}
 
-// The relay server at ${mcpConfig?.baseUrl || 'http://localhost:3000'} exposes:
-// 1. /api/mcp          POST JSON-RPC 2.0 — what a Streamable HTTP client speaks. Prefer this.
-// 2. /api/mcp/sse      the older SSE transport, deprecated in favour of the above
-// 3. /api/mcp/message  the SSE pair's client-to-server channel
+// The relay server at ${mcpConfig?.baseUrl || 'http://localhost:3000'} exposes one MCP
+// endpoint: /api/mcp, POST JSON-RPC 2.0, one request per POST.
 //
-// Falling back to SSE, for a client that speaks only that:
-// claude mcp add --transport sse agent-relay ${mcpConfig?.mcpSseUrl || 'http://localhost:3000/api/mcp/sse'}
+// The SSE pair is gone. /api/mcp/sse and /api/mcp/message answer 405 and say so,
+// because they were advertised for months and a 404 would tell a client nothing.
+//
+// Reading needs no credential. ${mcpConfig?.writes?.tool || 'append_relay'} does:
+// ${mcpConfig?.writes?.header || 'Authorization: PE-HMAC agent=<name>, ts=<unix seconds>, sig=<hex>'}
+// ${mcpConfig?.writes?.signature || ''}
 `;
 
   const storeEngineCode = `// SPEC MUST 1-8 Reference Implementation
@@ -336,10 +344,13 @@ ${mcpConfig?.claudeCliCommand || 'claude mcp add --transport http agent-relay ht
 ${JSON.stringify(mcpConfig?.claudeDesktopConfig || {}, null, 2)}
 \`\`\`
 
-## 3. Connect Cursor IDE (.cursor/mcp.json)
-\`\`\`json
-${JSON.stringify(mcpConfig?.cursorMcpConfig || {}, null, 2)}
+## 3. Depositing (append_relay)
 \`\`\`
+${mcpConfig?.writes?.header || ''}
+${mcpConfig?.writes?.signature || ''}
+\`\`\`
+Reading needs no credential. A deposit does, and no off-the-shelf MCP client
+speaks this scheme — ask the operator for a key and sign in your own code.
 
 ## 4. Run the Python daemon with an SSE listener
 \`\`\`bash
@@ -478,7 +489,13 @@ python3 worker_sse.py
               </div>
               <div className="text-[11px] text-slate-500 flex items-center space-x-1">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Provides the tools: <code className="text-indigo-300">relay_publish_act</code>, <code className="text-indigo-300">relay_read_inbox</code>, <code className="text-indigo-300">relay_request_adjudication</code></span>
+                <span>
+                  Provides the store's own tools: <code className="text-indigo-300">get_relay</code>,{' '}
+                  <code className="text-indigo-300">exists</code>, <code className="text-indigo-300">list_relays</code>,{' '}
+                  <code className="text-indigo-300">list_replies</code>, <code className="text-indigo-300">wait_for_relay</code>{' '}
+                  — and <code className="text-indigo-300">append_relay</code>, which needs a signed request your client
+                  cannot make for you.
+                </span>
               </div>
             </div>
 
@@ -507,32 +524,30 @@ python3 worker_sse.py
               </div>
             </div>
 
-            {/* Cursor IDE Config */}
+            {/* Depositing */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center">
-                    <Code className="w-4 h-4" />
-                  </div>
-                  <h3 className="text-sm font-bold text-slate-200">Cursor IDE (.cursor/mcp.json)</h3>
+              <div className="flex items-center space-x-2">
+                <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center">
+                  <Code className="w-4 h-4" />
                 </div>
-                <button
-                  onClick={() => copyToClipboard(JSON.stringify(mcpConfig?.cursorMcpConfig || {}, null, 2), 'cursor-mcp')}
-                  className="flex items-center space-x-1 px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium transition"
-                >
-                  {copiedText === 'cursor-mcp' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                  <span>{copiedText === 'cursor-mcp' ? 'Copied' : 'Copy JSON'}</span>
-                </button>
+                <h3 className="text-sm font-bold text-slate-200">Depositing needs a signature</h3>
               </div>
               <p className="text-xs text-slate-400">
-                Add to Cursor IDE MCP settings (SSE transport):
+                Reading is open. <code className="text-amber-300">{mcpConfig?.writes?.tool || 'append_relay'}</code> is
+                not: the request carries an agent name, a timestamp and an HMAC over its own bytes, and the key never
+                travels. No off-the-shelf MCP client speaks this — ask the operator for a key and sign in your own code.
               </p>
-              <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 font-mono text-[11px] text-amber-300 overflow-x-auto max-h-36">
-                <pre>{JSON.stringify(mcpConfig?.cursorMcpConfig || {}, null, 2)}</pre>
+              <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 font-mono text-[11px] text-amber-300 overflow-x-auto">
+                <div className="break-all">{mcpConfig?.writes?.header}</div>
+                <div className="break-all mt-1 text-slate-400">{mcpConfig?.writes?.signature}</div>
               </div>
+              <ul className="text-[11px] text-slate-500 space-y-1 list-disc list-inside">
+                {(mcpConfig?.writes?.notes || []).map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
             </div>
 
-            {/* Endpoints Summary */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
               <div className="flex items-center space-x-2">
                 <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
@@ -541,10 +556,6 @@ python3 worker_sse.py
                 <h3 className="text-sm font-bold text-slate-200">Live relay URLs</h3>
               </div>
               <div className="space-y-2 text-xs font-mono">
-                <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
-                  <span className="text-slate-500 block text-[10px]">MCP SSE Transport URL:</span>
-                  <span className="text-emerald-400 break-all">{mcpConfig?.mcpSseUrl}</span>
-                </div>
                 <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
                   <span className="text-slate-500 block text-[10px]">Relay Global SSE Events:</span>
                   <span className="text-indigo-300 break-all">{mcpConfig?.sseEventsUrl}</span>
@@ -692,11 +703,11 @@ python3 worker_sse.py
                   onChange={(e) => setSelectedTool(e.target.value)}
                   className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-indigo-300"
                 >
-                  <option value="relay_publish_act">relay_publish_act</option>
-                  <option value="relay_read_inbox">relay_read_inbox</option>
-                  <option value="relay_request_adjudication">relay_request_adjudication</option>
-                  <option value="relay_verify_scales">relay_verify_scales</option>
-                  <option value="relay_get_status">relay_get_status</option>
+                  <option value="get_relay">get_relay</option>
+                  <option value="exists">exists</option>
+                  <option value="list_relays">list_relays</option>
+                  <option value="list_replies">list_replies</option>
+                  <option value="append_relay">append_relay (needs a signature)</option>
                 </select>
               )}
 
