@@ -100,7 +100,6 @@ const store: IRelayStore = getStore({
 });
 
 // MCP Session Map for SSE Transport
-const mcpSessions = new Map<string, express.Response>();
 
 // Lazy Gemini SDK client
 let genAIClient: GoogleGenAI | null = null;
@@ -328,6 +327,129 @@ app.use((req, res, next) => {
   next();
 });
 
+/**
+ * `POST /api/mcp` — the one MCP endpoint on this host.
+ *
+ * It used to be this file's own JSON-RPC server over seven `relay_*` tools.
+ * Against a `PE_STORE_ROOT` backend three of those could not work at all:
+ * `relay_publish_act` and `relay_send_inbox` advertised a write the read-only
+ * store refuses with 405. Meanwhile p-e's own MCP server — the one whose tools
+ * match the store's semantics, bytes rather than envelopes — sat on loopback
+ * with no public route. Two endpoints, one of them lying about what it can do.
+ *
+ * So this forwards instead. The bytes are passed through untouched, because the
+ * upstream authenticates a write by an HMAC **over the raw body**: parse and
+ * re-serialise here and every signed deposit fails. That is why the route is
+ * mounted before `express.json` and takes `express.raw` — the order is the
+ * contract, not a style choice.
+ *
+ * The `Authorization` header is forwarded and never logged. Nothing else is
+ * added: no CORS header, because the upstream's Origin reasoning depends on its
+ * absence, and no rewritten path, because the upstream does not sign the path
+ * for exactly this reason.
+ *
+ * Reads need no credential — the same records are already public over
+ * `/api/relay/records`. A write needs a signature; see p-e's
+ * `docs/notes/connecting-an-agent.md`.
+ */
+const PE_MCP_UPSTREAM = process.env.PE_MCP_UPSTREAM ?? 'http://127.0.0.1:8787/';
+
+/**
+ * Longer than the upstream's own longest answer and shorter than undici's
+ * default. `wait_for_relay` legitimately blocks up to `MAX_WAIT_MS` — 90
+ * seconds — so a shorter bound here would break a working tool; without any
+ * bound, an upstream that accepts and never answers holds this connection for
+ * undici's ~300 s, and reads need no credential.
+ */
+const UPSTREAM_TIMEOUT_MS = 95_000;
+
+const mcpBody = express.raw({ type: '*/*', limit: '2mb' });
+
+const rpcError = (code: number, message: string) => ({
+  jsonrpc: '2.0',
+  id: null,
+  error: { code, message },
+});
+
+app.post(
+  '/api/mcp',
+  (req, res, next) => {
+    // A compressed body is refused rather than inflated, and the reason is the
+    // signature. `express.raw` inflates by default, so a client sending gzip
+    // would have to sign the DECOMPRESSED bytes here and the COMPRESSED ones
+    // when talking to the transport directly — the same request needing two
+    // different signatures depending on the path it took. Measured before
+    // deciding: a gzipped write signed over the plaintext is accepted through
+    // this route today. Byte-exactness is the whole contract, so the one thing
+    // that can silently change the bytes is turned away.
+    // `express.raw({ type: '*/*' })` captures nothing when there is no
+    // content-type at all, and the handler would then forward an EMPTY body —
+    // silently, so a correctly signed write would come back as a parse error
+    // through this route while working direct to the transport. Naming a
+    // default here changes no bytes; it only lets the parser see them.
+    if (!req.get('content-type')) req.headers['content-type'] = 'application/json';
+    if (req.get('content-encoding')) {
+      return res
+        .status(415)
+        .json(rpcError(-32600, 'send the body uncompressed: the signature covers the bytes as sent'));
+    }
+    return next();
+  },
+  (req, res, next) =>
+    mcpBody(req, res, (error?: unknown) => {
+      // Express answers its own HTML error page for an oversized body, which is
+      // a poor thing to hand a JSON-RPC client. The status was already right;
+      // this makes the body match it.
+      if (!error) return next();
+      const status = (error as { status?: number }).status ?? 400;
+      return res
+        .status(status)
+        .json(rpcError(-32600, status === 413 ? 'body too large' : 'could not read the body'));
+    }),
+  async (req, res) => {
+    const authorization = req.get('authorization');
+    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+
+    // The read of the body is inside the same guard as the connection, and that
+    // is the whole point of the shape. It used to sit outside: an upstream that
+    // sent headers and then reset — a restart mid-request, an OOM, a plain RST
+    // — rejected `upstream.text()`, Express 4 does not route an async handler's
+    // rejection to error middleware, and node 22 terminates on an unhandled
+    // rejection. Reproduced: the process died and the port stopped listening,
+    // taking the UI, the SSE stream and every other route with it. Reads need
+    // no credential, and `wait_for_relay` holds a connection for up to ninety
+    // seconds, so the window for that reset is wide and anyone could be in it.
+    try {
+      const upstream = await fetch(PE_MCP_UPSTREAM, {
+        method: 'POST',
+        headers: {
+          'content-type': req.get('content-type') ?? 'application/json',
+          ...(authorization ? { authorization } : {}),
+        },
+        body,
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      });
+
+      const text = await upstream.text();
+      res.status(upstream.status);
+      res.type(upstream.headers.get('content-type') ?? 'application/json');
+      // A 401 carries the scheme the caller has to use; without it the client is
+      // told it failed and not how to succeed.
+      const challenge = upstream.headers.get('www-authenticate');
+      if (challenge) res.setHeader('www-authenticate', challenge);
+      return text === '' ? res.end() : res.send(text);
+    } catch {
+      // The transport is a separate process, started by hand or by a unit. If
+      // it is not there, or it goes away mid-answer, say so as a transport
+      // failure rather than an MCP error: the caller's request was fine.
+      if (res.headersSent) return res.end();
+      return res
+        .status(502)
+        .json(rpcError(-32000, 'the relay transport is not answering on this host'));
+    }
+  },
+);
+
 app.use(express.json({ limit: '10mb' }));
 
 // 1. Get Store Status & Inboxes
@@ -424,7 +546,6 @@ app.get('/api/relay/stream-status', (req, res) => {
   res.json({
     activeCount: sseClients.size,
     clients: clientsList,
-    mcpSessionsCount: mcpSessions.size
   });
 });
 
@@ -446,334 +567,27 @@ setInterval(() => {
 // 🔌 MODEL CONTEXT PROTOCOL (MCP) IMPLEMENTATION
 // ==========================================
 
-const MCP_TOOLS = [
-  {
-    name: 'relay_publish_act',
-    description: 'Deposit a sealed Envelope (claim, challenge, finding, ruling, or attestation) into the atomic O_EXCL ledger with Just Scales canonical JCS hashing (Prov 11:1).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        from: { type: 'string', description: 'Agent identifier (e.g. agent:claude-code-cli, agent:chatgpt-adversary)' },
-        to: { type: 'string', description: 'Recipient agent or "all"', default: 'all' },
-        type: { type: 'string', enum: ['claim', 'challenge', 'finding', 'ruling', 'attestation'], description: 'Envelope type' },
-        title: { type: 'string', description: 'Concise title of the act' },
-        parent_locator: { type: 'string', description: 'Optional locator of parent record being answered/challenged (e.g. relay-0001)' },
-        payload: { type: 'object', description: 'Structured JSON payload data' }
-      },
-      required: ['from', 'title', 'payload']
-    }
-  },
-  {
-    name: 'relay_read_inbox',
-    description: 'Fetch messages deposited into a specific agent inbox (e.g. claude, chatgpt, gemini, court).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        agent: { type: 'string', enum: ['claude', 'chatgpt', 'gemini', 'court'], description: 'Agent inbox to read' }
-      },
-      required: ['agent']
-    }
-  },
-  {
-    name: 'relay_send_inbox',
-    description: 'Send a targeted envelope directly to another agent inbox without broadcasting.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        targetAgent: { type: 'string', enum: ['claude', 'chatgpt', 'gemini', 'court'] },
-        from: { type: 'string' },
-        type: { type: 'string', default: 'claim' },
-        title: { type: 'string' },
-        payload: { type: 'object' }
-      },
-      required: ['targetAgent', 'title', 'payload']
-    }
-  },
-  {
-    name: 'relay_read_ledger',
-    description: 'Read all committed records from the monotonic sequence log with integrity check (PRESENT vs KNOWN_MISSING under SPEC MUST 6).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        limit: { type: 'number', description: 'Max number of latest records to return (default: all)' }
-      }
-    }
-  },
-  {
-    name: 'relay_request_adjudication',
-    description: 'Submit a proposal or claim to the Gemini Criterion Guard for Proverbs 18:17 cross-examination and SPEC MUST 1-8 verification.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        claim: { type: 'string', description: 'The claim or proposal statement to cross-examine' },
-        code: { type: 'object', description: 'Optional code or payload object' },
-        invariants: { type: 'array', items: { type: 'string' }, description: 'List of invariants to audit' },
-        author: { type: 'string', description: 'Author agent ID' }
-      },
-      required: ['claim']
-    }
-  },
-  {
-    name: 'relay_verify_scales',
-    description: 'Verify the Just Scales canonical SHA-256 digest (Prov 11:1) for a specific record locator.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        locator: { type: 'string', description: 'Record locator (e.g. relay-0001)' }
-      },
-      required: ['locator']
-    }
-  },
-  {
-    name: 'relay_get_status',
-    description: 'Get current sequence count, inboxes status, and SPEC invariant telemetry.',
-    inputSchema: {
-      type: 'object',
-      properties: {}
-    }
-  }
-];
-
-// MCP JSON-RPC 2.0 Handler
 /**
- * Answer the revision the client asked for, when we can serve it.
+ * The seven `relay_*` tools this file used to serve are gone, and so is the SSE
+ * pair beside them. What replaced them is the proxy above: one endpoint, the
+ * store's own tool surface, and a write that has to be signed.
  *
- * Replying with a fixed version regardless of what was asked is how an MCP
- * handshake fails silently: the client rejects the mismatch and retries, which
- * from the server's side looks like a healthy connection carrying nothing but
- * `initialize`. The p-e relay server hit exactly this and recorded the shape of
- * it — 162 consecutive initialize forwards, no tools/list, while every local
- * probe succeeded — so this is that fix, not a new idea.
- *
- * The set is the revisions whose handshake and tool surface this server serves
- * unchanged. It implements `initialize`, `tools/list`, `tools/call` and
- * `resources/list`, and none of these revisions altered them. A revision outside
- * the set gets our default rather than an echo, because echoing a version we
- * have not checked is the same failure with better manners.
+ * The two SSE paths answer 405 rather than 404. They were advertised for months
+ * by `/api/mcp/config`, so a client still holding that configuration deserves to
+ * be told what to use instead of being told the path does not exist.
  */
-const SERVABLE_PROTOCOLS = new Set(['2024-11-05', '2025-03-26', '2025-06-18']);
-const DEFAULT_PROTOCOL = '2024-11-05';
+const SSE_GONE = {
+  jsonrpc: '2.0',
+  id: null,
+  error: {
+    code: -32601,
+    message:
+      'this endpoint no longer opens an SSE stream. Use POST /api/mcp — one JSON-RPC request per POST, which is what a Streamable HTTP client sends.',
+  },
+};
 
-function negotiateProtocol(params: any): string {
-  const asked = params?.protocolVersion;
-  return typeof asked === 'string' && SERVABLE_PROTOCOLS.has(asked) ? asked : DEFAULT_PROTOCOL;
-}
-
-async function handleMcpRpc(body: any): Promise<any> {
-  const { jsonrpc, id, method, params } = body;
-
-  if (method === 'initialize') {
-    return {
-      jsonrpc: '2.0',
-      id,
-      result: {
-        protocolVersion: negotiateProtocol(params),
-        capabilities: {
-          tools: {},
-          resources: {},
-          prompts: {}
-        },
-        serverInfo: {
-          name: 'agent-relay-hub',
-          version: '1.0.0'
-        }
-      }
-    };
-  }
-
-  if (method === 'notifications/initialized') {
-    return null; // MCP notifications don't return response
-  }
-
-  if (method === 'ping') {
-    return { jsonrpc: '2.0', id, result: {} };
-  }
-
-  if (method === 'tools/list') {
-    return {
-      jsonrpc: '2.0',
-      id,
-      result: {
-        tools: MCP_TOOLS
-      }
-    };
-  }
-
-  if (method === 'tools/call') {
-    const { name, arguments: args } = params || {};
-    
-    try {
-      let toolResult: any = null;
-
-      if (name === 'relay_publish_act') {
-        const envelope = await store.deposit({
-          from: args.from || 'agent:mcp-client',
-          to: args.to || 'all',
-          type: args.type || 'claim',
-          title: args.title || 'Act via MCP',
-          parent_locator: args.parent_locator,
-          payload: args.payload || {}
-        });
-        toolResult = {
-          success: true,
-          locator: envelope.locator,
-          seq: envelope.seq,
-          digest: envelope.digest,
-          status: 'COMMITTED_O_EXCL'
-        };
-      } else if (name === 'relay_read_inbox') {
-        const agent = args.agent;
-        const messages = await store.getInbox(agent);
-        toolResult = { agent, count: messages.length, messages };
-      } else if (name === 'relay_send_inbox') {
-        const { targetAgent, from, type, title, payload } = args;
-        const envelope = await store.sendToInbox(targetAgent, {
-          from: from || 'agent:mcp-client',
-          to: targetAgent,
-          type: type || 'claim',
-          title: title || 'Message via MCP',
-          payload: payload || {}
-        });
-        toolResult = { success: true, id: envelope.id, targetAgent };
-      } else if (name === 'relay_read_ledger') {
-        const records = await store.getAllRecords(args.limit);
-        const status = await store.getStatus();
-        toolResult = { count: records.length, total: status.totalSequencesAllocated, records };
-      } else if (name === 'relay_request_adjudication') {
-        const { claim, code, invariants, author } = args;
-        const detResult = evaluateDeterministicJurisprudence(claim, code, invariants);
-        const finding = await store.deposit({
-          from: 'agent:gemini-criterion-guard',
-          to: author || 'agent:mcp-client',
-          type: 'finding',
-          title: `MCP Finding: ${detResult.verdict}`,
-          payload: {
-            claim,
-            verdict: detResult.verdict,
-            reasoning: detResult.reasoning,
-            biblical_principle: detResult.biblical_principle,
-            rule_triggered: detResult.rule_triggered
-          }
-        });
-        toolResult = { verdict: detResult.verdict, locator: finding.locator, reasoning: detResult.reasoning, biblical_principle: detResult.biblical_principle };
-      } else if (name === 'relay_verify_scales') {
-        const locator = args.locator;
-        const vResult = await store.verifyDigest(locator);
-        if (!vResult) {
-          toolResult = { error: `Locator ${locator} not found or missing` };
-        } else {
-          toolResult = vResult;
-        }
-      } else if (name === 'relay_get_status') {
-        const storeStatus = await store.getStatus();
-        toolResult = {
-          ...storeStatus,
-          spec: 'v1.0.0-PROV18-17',
-          activeSSE: sseClients.size
-        };
-      } else {
-        throw new Error(`Unknown tool: ${name}`);
-      }
-
-      return {
-        jsonrpc: '2.0',
-        id,
-        result: {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(toolResult, null, 2)
-            }
-          ]
-        }
-      };
-    } catch (err: any) {
-      return {
-        jsonrpc: '2.0',
-        id,
-        error: {
-          code: -32603,
-          message: err.message || 'Internal error in tool execution'
-        }
-      };
-    }
-  }
-
-  if (method === 'resources/list') {
-    return {
-      jsonrpc: '2.0',
-      id,
-      result: {
-        resources: [
-          { uri: 'relay://ledger', name: 'Relay Monotonic Ledger', mimeType: 'application/json' },
-          { uri: 'relay://inbox/claude', name: 'Claude Inbox', mimeType: 'application/json' },
-          { uri: 'relay://inbox/chatgpt', name: 'ChatGPT Inbox', mimeType: 'application/json' },
-          { uri: 'relay://inbox/gemini', name: 'Gemini Inbox', mimeType: 'application/json' },
-          { uri: 'relay://spec', name: 'SPEC v1 Invariants & Jurisprudence', mimeType: 'text/markdown' }
-        ]
-      }
-    };
-  }
-
-  return {
-    jsonrpc: '2.0',
-    id,
-    error: {
-      code: -32601,
-      message: `Method not found: ${method}`
-    }
-  };
-}
-
-// 🔌 MCP Standard HTTP Endpoint (JSON-RPC)
-app.post('/api/mcp', async (req, res) => {
-  try {
-    const result = await handleMcpRpc(req.body);
-    if (result === null) {
-      return res.status(204).end();
-    }
-    res.json(result);
-  } catch (error: any) {
-    res.status(500).json({ jsonrpc: '2.0', error: { code: -32603, message: error.message } });
-  }
-});
-
-// 🔌 MCP SSE Stream Transport (Claude Desktop / SSE-based MCP Clients)
-app.get('/api/mcp/sse', (req, res) => {
-  const sessionId = `mcp_sess_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-  
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': '*'
-  });
-
-  mcpSessions.set(sessionId, res);
-
-  // Send the endpoint event as per MCP specification
-  res.write(`event: endpoint\ndata: /api/mcp/message?sessionId=${sessionId}\n\n`);
-
-  req.on('close', () => {
-    mcpSessions.delete(sessionId);
-  });
-});
-
-// MCP Message endpoint for SSE sessions
-app.post('/api/mcp/message', async (req, res) => {
-  const sessionId = req.query.sessionId as string;
-  const sseRes = mcpSessions.get(sessionId);
-
-  try {
-    const response = await handleMcpRpc(req.body);
-    if (response && sseRes) {
-      sseRes.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
-    }
-    res.status(202).json({ success: true });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
+app.get('/api/mcp/sse', (_req, res) => res.status(405).json(SSE_GONE));
+app.post('/api/mcp/message', (_req, res) => res.status(405).json(SSE_GONE));
 
 // 🔌 MCP Ready-to-use Configurations Exporter
 app.get('/api/mcp/config', (req, res) => {
@@ -781,59 +595,42 @@ app.get('/api/mcp/config', (req, res) => {
   const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
   const baseUrl = `${protocol}://${host}`;
 
-  // `POST /api/mcp` is what these lead with. It is plain JSON-RPC over HTTP,
-  // which is what a Streamable HTTP client sends for stateless tool calling, and
-  // it was verified end to end against the deployed service: initialize 200,
-  // notifications/initialized 204, tools/list returning all seven tools.
+  // What this hands out changed with the endpoint. `POST /api/mcp` now reaches
+  // the p-e transport, whose five read tools answer anyone and whose one write
+  // tool requires an HMAC over the raw request body. So a standard client can be
+  // configured and will read; it cannot deposit, because no off-the-shelf MCP
+  // client speaks this scheme — and that is stated here rather than discovered
+  // at someone's first refused write.
   //
-  // The SSE pair still works and is offered as a fallback rather than removed —
-  // it is the older transport, deprecated in favour of Streamable HTTP, and
-  // clients that only speak it are still around. What changed is which one a
-  // reader is handed first: this endpoint advertised only SSE while the better
-  // transport sat beside it, already implemented.
+  // The SSE forms are gone. They pointed at a transport this host no longer
+  // serves, and handing out a configuration that cannot work is how the
+  // SSE-only advice before it survived for months.
   const claudeConfig = {
     mcpServers: {
-      "agent-relay": { type: "http", url: `${baseUrl}/api/mcp` }
+      'agent-relay': { type: 'http', url: `${baseUrl}/api/mcp` }
     }
   };
-
-  const claudeConfigSse = {
-    mcpServers: {
-      "agent-relay": { type: "sse", url: `${baseUrl}/api/mcp/sse` }
-    }
-  };
-
-  // NOT UPDATED, and flagged rather than guessed at. This hands Cursor
-  // `@modelcontextprotocol/server-fetch` pointed at our URL, which is a server
-  // that fetches URLs — it would give Cursor a fetch tool, not the seven relay
-  // tools. Rewriting it needs Cursor's remote-server schema confirmed against
-  // Cursor's own documentation, and inventing a schema is how the SSE-only
-  // advice above came to be handed out for months.
-  const cursorMcpConfig = {
-    mcpServers: {
-      "agent-relay": {
-        command: "npx",
-        args: ["-y", "@modelcontextprotocol/server-fetch", `${baseUrl}/api/mcp`]
-      }
-    },
-    _note: "unverified; see server.ts. Prefer claudeConfig's url form if your client accepts it."
-  };
-
-  const claudeCliCommand = `claude mcp add --transport http agent-relay ${baseUrl}/api/mcp`;
-  const claudeCliCommandSse = `claude mcp add --transport sse agent-relay ${baseUrl}/api/mcp/sse`;
 
   res.json({
     baseUrl,
     sseEventsUrl: `${baseUrl}/api/relay/events`,
     mcpHttpUrl: `${baseUrl}/api/mcp`,
-    mcpSseUrl: `${baseUrl}/api/mcp/sse`,
     claudeConfig,
-    claudeConfigSse,
-    // Former name for `claudeConfig`, kept so an existing reader is not broken.
+    // Former name, kept so an existing reader is not broken.
     claudeDesktopConfig: claudeConfig,
-    cursorMcpConfig,
-    claudeCliCommand,
-    claudeCliCommandSse
+    claudeCliCommand: `claude mcp add --transport http agent-relay ${baseUrl}/api/mcp`,
+    reads: 'open — the five read tools answer without a credential, as these records already do over /api/relay/records',
+    writes: {
+      tool: 'append_relay',
+      scheme: 'PE-HMAC',
+      header: 'Authorization: PE-HMAC agent=<name>, ts=<unix seconds>, sig=<hex>',
+      signature: 'HMAC-SHA256(key, "POST" + "\n" + ts + "\n" + sha256hex(raw request body))',
+      notes: [
+        'sign the exact bytes you send: a re-serialisation is different bytes and will not verify',
+        'a signature is accepted once, so a captured request cannot be replayed into a second permanent record',
+        'no standard MCP client speaks this; ask the operator for a key and sign in your own code'
+      ]
+    }
   });
 });
 
