@@ -354,6 +354,15 @@ app.use((req, res, next) => {
  */
 const PE_MCP_UPSTREAM = process.env.PE_MCP_UPSTREAM ?? 'http://127.0.0.1:8787/';
 
+/**
+ * Longer than the upstream's own longest answer and shorter than undici's
+ * default. `wait_for_relay` legitimately blocks up to `MAX_WAIT_MS` — 90
+ * seconds — so a shorter bound here would break a working tool; without any
+ * bound, an upstream that accepts and never answers holds this connection for
+ * undici's ~300 s, and reads need no credential.
+ */
+const UPSTREAM_TIMEOUT_MS = 95_000;
+
 const mcpBody = express.raw({ type: '*/*', limit: '2mb' });
 
 const rpcError = (code: number, message: string) => ({
@@ -373,6 +382,12 @@ app.post(
     // deciding: a gzipped write signed over the plaintext is accepted through
     // this route today. Byte-exactness is the whole contract, so the one thing
     // that can silently change the bytes is turned away.
+    // `express.raw({ type: '*/*' })` captures nothing when there is no
+    // content-type at all, and the handler would then forward an EMPTY body —
+    // silently, so a correctly signed write would come back as a parse error
+    // through this route while working direct to the transport. Naming a
+    // default here changes no bytes; it only lets the parser see them.
+    if (!req.get('content-type')) req.headers['content-type'] = 'application/json';
     if (req.get('content-encoding')) {
       return res
         .status(415)
@@ -395,33 +410,43 @@ app.post(
     const authorization = req.get('authorization');
     const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
 
-    let upstream: Response;
+    // The read of the body is inside the same guard as the connection, and that
+    // is the whole point of the shape. It used to sit outside: an upstream that
+    // sent headers and then reset — a restart mid-request, an OOM, a plain RST
+    // — rejected `upstream.text()`, Express 4 does not route an async handler's
+    // rejection to error middleware, and node 22 terminates on an unhandled
+    // rejection. Reproduced: the process died and the port stopped listening,
+    // taking the UI, the SSE stream and every other route with it. Reads need
+    // no credential, and `wait_for_relay` holds a connection for up to ninety
+    // seconds, so the window for that reset is wide and anyone could be in it.
     try {
-      upstream = await fetch(PE_MCP_UPSTREAM, {
+      const upstream = await fetch(PE_MCP_UPSTREAM, {
         method: 'POST',
         headers: {
           'content-type': req.get('content-type') ?? 'application/json',
           ...(authorization ? { authorization } : {}),
         },
         body,
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       });
+
+      const text = await upstream.text();
+      res.status(upstream.status);
+      res.type(upstream.headers.get('content-type') ?? 'application/json');
+      // A 401 carries the scheme the caller has to use; without it the client is
+      // told it failed and not how to succeed.
+      const challenge = upstream.headers.get('www-authenticate');
+      if (challenge) res.setHeader('www-authenticate', challenge);
+      return text === '' ? res.end() : res.send(text);
     } catch {
       // The transport is a separate process, started by hand or by a unit. If
-      // it is not there, say so as a transport failure rather than an MCP
-      // error: the caller's request was fine.
+      // it is not there, or it goes away mid-answer, say so as a transport
+      // failure rather than an MCP error: the caller's request was fine.
+      if (res.headersSent) return res.end();
       return res
         .status(502)
         .json(rpcError(-32000, 'the relay transport is not answering on this host'));
     }
-
-    const text = await upstream.text();
-    res.status(upstream.status);
-    res.type(upstream.headers.get('content-type') ?? 'application/json');
-    // A 401 carries the scheme the caller has to use; without it the client is
-    // told it failed and not how to succeed.
-    const challenge = upstream.headers.get('www-authenticate');
-    if (challenge) res.setHeader('www-authenticate', challenge);
-    return text === '' ? res.end() : res.send(text);
   },
 );
 
