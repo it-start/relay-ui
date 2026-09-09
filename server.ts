@@ -596,6 +596,23 @@ const SSE_GONE = {
 app.get('/api/mcp/sse', (_req, res) => res.status(405).json(SSE_GONE));
 app.post('/api/mcp/message', (_req, res) => res.status(405).json(SSE_GONE));
 
+/**
+ * `GET /api/mcp` answers 405, and that is a fix rather than a formality.
+ *
+ * Without this the request fell through to the SPA and came back as **200 with
+ * an HTML page** — the worst of the three possible answers. The Streamable HTTP
+ * transport says a server either returns an SSE stream on GET or returns 405 to
+ * say it does not offer one, and a client's backwards-compatibility probe is
+ * exactly a GET: on 4xx it stops, on 200 it tries to read an `endpoint` event
+ * out of what it got. An HTML page is neither.
+ *
+ * Found because relay-grok reported its connector answering 405 against this
+ * host and read a record off a branch instead of the store — the SSE pair it
+ * still speaks was removed here, and nothing it received said so in a place it
+ * looked.
+ */
+app.get('/api/mcp', (_req, res) => res.status(405).json(SSE_GONE));
+
 // 🔌 MCP Ready-to-use Configurations Exporter
 /** The public origin as the client reached it, proxy headers included. */
 function publicBase(req: express.Request): string {
