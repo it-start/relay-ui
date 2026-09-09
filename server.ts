@@ -354,40 +354,76 @@ app.use((req, res, next) => {
  */
 const PE_MCP_UPSTREAM = process.env.PE_MCP_UPSTREAM ?? 'http://127.0.0.1:8787/';
 
-app.post('/api/mcp', express.raw({ type: '*/*', limit: '2mb' }), async (req, res) => {
-  const authorization = req.get('authorization');
-  const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+const mcpBody = express.raw({ type: '*/*', limit: '2mb' });
 
-  let upstream: Response;
-  try {
-    upstream = await fetch(PE_MCP_UPSTREAM, {
-      method: 'POST',
-      headers: {
-        'content-type': req.get('content-type') ?? 'application/json',
-        ...(authorization ? { authorization } : {}),
-      },
-      body,
-    });
-  } catch {
-    // The transport is a separate process, started by hand or by a unit. If it
-    // is not there, say so as a transport failure rather than an MCP error: the
-    // caller's request was fine.
-    return res.status(502).json({
-      jsonrpc: '2.0',
-      id: null,
-      error: { code: -32000, message: 'the relay transport is not answering on this host' },
-    });
-  }
-
-  const text = await upstream.text();
-  res.status(upstream.status);
-  res.type(upstream.headers.get('content-type') ?? 'application/json');
-  // A 401 carries the scheme the caller has to use; without it the client is
-  // told it failed and not how to succeed.
-  const challenge = upstream.headers.get('www-authenticate');
-  if (challenge) res.setHeader('www-authenticate', challenge);
-  return text === '' ? res.end() : res.send(text);
+const rpcError = (code: number, message: string) => ({
+  jsonrpc: '2.0',
+  id: null,
+  error: { code, message },
 });
+
+app.post(
+  '/api/mcp',
+  (req, res, next) => {
+    // A compressed body is refused rather than inflated, and the reason is the
+    // signature. `express.raw` inflates by default, so a client sending gzip
+    // would have to sign the DECOMPRESSED bytes here and the COMPRESSED ones
+    // when talking to the transport directly — the same request needing two
+    // different signatures depending on the path it took. Measured before
+    // deciding: a gzipped write signed over the plaintext is accepted through
+    // this route today. Byte-exactness is the whole contract, so the one thing
+    // that can silently change the bytes is turned away.
+    if (req.get('content-encoding')) {
+      return res
+        .status(415)
+        .json(rpcError(-32600, 'send the body uncompressed: the signature covers the bytes as sent'));
+    }
+    return next();
+  },
+  (req, res, next) =>
+    mcpBody(req, res, (error?: unknown) => {
+      // Express answers its own HTML error page for an oversized body, which is
+      // a poor thing to hand a JSON-RPC client. The status was already right;
+      // this makes the body match it.
+      if (!error) return next();
+      const status = (error as { status?: number }).status ?? 400;
+      return res
+        .status(status)
+        .json(rpcError(-32600, status === 413 ? 'body too large' : 'could not read the body'));
+    }),
+  async (req, res) => {
+    const authorization = req.get('authorization');
+    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+
+    let upstream: Response;
+    try {
+      upstream = await fetch(PE_MCP_UPSTREAM, {
+        method: 'POST',
+        headers: {
+          'content-type': req.get('content-type') ?? 'application/json',
+          ...(authorization ? { authorization } : {}),
+        },
+        body,
+      });
+    } catch {
+      // The transport is a separate process, started by hand or by a unit. If
+      // it is not there, say so as a transport failure rather than an MCP
+      // error: the caller's request was fine.
+      return res
+        .status(502)
+        .json(rpcError(-32000, 'the relay transport is not answering on this host'));
+    }
+
+    const text = await upstream.text();
+    res.status(upstream.status);
+    res.type(upstream.headers.get('content-type') ?? 'application/json');
+    // A 401 carries the scheme the caller has to use; without it the client is
+    // told it failed and not how to succeed.
+    const challenge = upstream.headers.get('www-authenticate');
+    if (challenge) res.setHeader('www-authenticate', challenge);
+    return text === '' ? res.end() : res.send(text);
+  },
+);
 
 app.use(express.json({ limit: '10mb' }));
 
