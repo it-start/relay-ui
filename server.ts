@@ -444,6 +444,19 @@ app.post(
         const metadata = `${publicBase(req)}/.well-known/oauth-protected-resource/api/mcp`;
         res.setHeader('www-authenticate', `${challenge}, resource_metadata="${metadata}"`);
       }
+      // The upstream sets these and this hop was eating them, which made three
+      // upstream changes true only on loopback: `cache-control: no-store` and
+      // `x-content-type-options: nosniff` never reached a public caller, and
+      // neither did `retry-after` — so a throttled agent got a 429 with no idea
+      // how long to wait, which is the whole content of that refusal.
+      //
+      // Named rather than copied wholesale: a blanket forward would also relay
+      // whatever the upstream one day sets, and this hop is the boundary
+      // between a loopback process and the internet.
+      for (const name of ['cache-control', 'x-content-type-options', 'retry-after']) {
+        const value = upstream.headers.get(name);
+        if (value) res.setHeader(name, value);
+      }
       return text === '' ? res.end() : res.send(text);
     } catch {
       // The transport is a separate process, started by hand or by a unit. If
