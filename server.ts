@@ -684,6 +684,30 @@ app.get('/.well-known/oauth-protected-resource', (req, res) =>
 );
 
 /**
+ * Glama's HTTP ownership challenge for the connector listing.
+ *
+ * The token is **public by design**: the challenge is answered by serving it at
+ * a URL anyone can fetch, and Glama states it carries no personal information.
+ * It is not a credential, nothing is signed with it, and it should not be
+ * rotated on sight — a reader finding a token in source is right to be
+ * suspicious, which is why this comment exists.
+ *
+ * It must keep being served. "Keep the HTTP file or DNS record in place to keep
+ * ownership verified" — removing this route later un-verifies the listing.
+ *
+ * A route rather than a file under `public/`: the SPA catch-all answers unknown
+ * paths with index.html, so a file that failed to be copied into `dist` would
+ * present as valid HTML where valid JSON was asked for, which reads as a
+ * malformed answer rather than a missing one.
+ */
+app.get('/.well-known/glama.json', (_req, res) =>
+  res.json({
+    $schema: 'https://glama.ai/mcp/schemas/connector.json',
+    claim: 'glama_claim_5Lmnql05_RzZHmmJBDgsH_Xx2nA1NxRo',
+  }),
+);
+
+/**
  * What `resource_documentation` points at: the contract in prose, for whoever
  * or whatever arrived here from a 401.
  */
