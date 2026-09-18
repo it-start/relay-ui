@@ -51,19 +51,22 @@ echo "==> git pull"
 # branch a deployment tracks. set -e stops here, before anything is built.
 git pull --ff-only
 
+# bun, and frozen: the committed lockfile is bun.lock, and a deployment
+# that resolves something else is a deployment of something else. npm has
+# no lockfile here to be deterministic against — it would write its own.
 echo "==> install"
-npm install --no-audit --no-fund
+bun install --frozen-lockfile
 
 echo "==> typecheck"
-npm run lint
+bun run lint
 
 echo "==> build"
-npm run build
+bun run build
 
 # Read-only backend, so this is safe to run against the live corpus. It ends by
 # asserting the corpus has as many records after as before.
 echo "==> store checks"
-PE_STORE_ROOT="$PE_STORE_ROOT" npm run check:pe-store
+PE_STORE_ROOT="$PE_STORE_ROOT" bun run check:pe-store
 
 echo "==> restart"
 systemctl --user restart "$UNIT"

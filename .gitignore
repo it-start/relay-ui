@@ -13,3 +13,9 @@ deploy.env
 
 # Attestation log written by the WebMCP surface at runtime.
 .attest/
+
+# npm's lockfile, which this repository does not keep. `bun.lock` is the one
+# committed, and a second lockfile is two answers to one question: the hosting
+# container runs `npm install` and will write this file, and it must not travel
+# back here. See the README section on the hosting container.
+package-lock.json

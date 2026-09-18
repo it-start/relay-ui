@@ -4,8 +4,8 @@ Three ways to run this, and they are not variations of one thing.
 
 | | command | what it is |
 |---|---|---|
-| **dev** | `npm run dev` | Vite dev server with HMR. Not meant to face a network. |
-| **one-off** | `npm run build && npm start` | The built client from `dist/`, served by Node. Dies with the shell. |
+| **dev** | `bun run dev` | Vite dev server with HMR. Not meant to face a network. |
+| **one-off** | `bun run build && bun run start` | The built client from `dist/`, served by Node. Dies with the shell. |
 | **service** | see below | Survives logout and reboot, restarts on failure. |
 
 Environment variables are in the [README](../README.md#environment). Two of them
@@ -111,7 +111,7 @@ Restarting once, last, after the build succeeded is the property that matters.
 `PE_STORE_ROOT` points this at a p-e relay store instead of its own. That
 backend is read-only — `write`, `delete` and `reset` are declared unavailable in
 `capabilities` and refused with `405` — so the corpus cannot be modified through
-the UI no matter what a request asks for. `npm run check:pe-store` verifies
+the UI no matter what a request asks for. `bun run check:pe-store` verifies
 that, ending with an assertion that the store holds as many records after the
 run as before.
 

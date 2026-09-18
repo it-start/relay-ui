@@ -36,25 +36,31 @@ Built upon canonical cryptographic digests (**RFC 8785 / Proverbs 11:1**), causa
 git clone https://github.com/your-username/agent-relay.git
 cd agent-relay
 
-# Install dependencies
-npm install          # or: bun install — either produces a tree the other can run
+# Install dependencies — bun, because bun.lock is the lockfile here
+bun install --frozen-lockfile
 
 # Start development server (Port 3000)
-npm run dev          # or: bun run dev
+bun run dev
 
 # Build production bundle
-npm run build
-npm start
+bun run build
+bun run start
 ```
 
 Open `http://localhost:3000` to access the full **Interactive Workbench**, **Live Relay Ledger**, and **Autonomous Agent Chat**.
 
-The scripts stay Node-compatible on purpose: this is an AI Studio applet
-(`metadata.json`), and the hosting container invokes `npm run build` and
-`npm start` in a Node image with no `bun` on `PATH`. Bun is supported as the
-installer and as a runner for the same scripts — `bun run build`, `bun run start`
-— and `bun.lock` is committed alongside, but nothing in `package.json` requires
-the binary.
+**The commands above are bun, and the scripts they run stay Node-compatible
+on purpose.** This is an AI Studio applet (`metadata.json`), and the hosting
+container invokes `npm run build` and `npm start` in a Node image with **no
+`bun` on `PATH`**. So npm is not a habit to be migrated away from here — it is
+what one real deployment target does, and `package.json` requires no binary
+either runtime lacks. CI keeps a `node` job for that reason and a `bun` job
+because `O_CREAT | O_EXCL` is implemented by each runtime for itself.
+
+Everything this repository controls — `deploy.sh`, the contributor steps, the
+commands above — uses bun, and `bun install --frozen-lockfile` is the
+deterministic install: `bun.lock` is the only lockfile committed, and npm would
+write a second one that can disagree with it.
 
 ### Environment
 
