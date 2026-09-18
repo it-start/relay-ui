@@ -1,0 +1,104 @@
+# Publish this deployment's record to the MCP registry.
+#
+# Unlike a packaged server, there is nothing to build or upload: the artifact is
+# a running endpoint, and `server.json` names it under `remotes`. What this
+# publishes is the claim "that URL speaks MCP and belongs to this repository",
+# which the registry verifies through GitHub OIDC — no secret is stored here.
+#
+# It runs on every push to main and decides for itself whether anything needs
+# saying: the version in package.json against the versions the registry already
+# lists. An ordinary merge leaves them equal and the job stops. Deciding from
+# the registry rather than from an event also makes a re-run harmless.
+#
+# Bump `version` in package.json (and server.json, which must agree) when the
+# endpoint's contract changes — a new transport, a new URL, a different
+# authentication scheme. Not for an ordinary code change: the record describes
+# the deployment, not the build.
+name: Publish to MCP Registry
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: mcp-registry
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: server.json
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # OIDC for `mcp-publisher login github-oidc`: no registry secret is stored.
+      id-token: write
+    env:
+      SERVER_NAME: io.github.it-start/relay-ui
+      # Pinned and checksum-verified: this job holds a registry identity, so it
+      # must not run whatever `releases/latest` happens to be. Bump both
+      # together; a binary too old for the registry fails login on the audience.
+      MCP_PUBLISHER_VERSION: "1.8.1"
+      MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Decide whether to publish
+        id: gate
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version package.json)
+          declared=$(jq -r .version server.json)
+          if [ "$version" != "$declared" ]; then
+            echo "::error::package.json says $version and server.json says $declared"
+            exit 1
+          fi
+          listed=$(curl --proto '=https' --tlsv1.2 -fsSL --max-time 30 \
+            "https://registry.modelcontextprotocol.io/v0/servers?search=${SERVER_NAME}" \
+            | jq -r --arg name "$SERVER_NAME" \
+              '[.servers[].server | select(.name == $name) | .version] | join(" ")')
+          echo "version=$version listed=[$listed]"
+          if printf '%s\n' $listed | grep -qx "$version"; then
+            echo "$version is already in the registry; nothing to do"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: The endpoint answers MCP before we tell the world it does
+        if: steps.gate.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          # A record pointing at a URL that does not speak MCP is worse than no
+          # record. `initialize` is the cheapest proof, and it needs no credential.
+          url=$(jq -r '.remotes[0].url' server.json)
+          answer=$(curl --proto '=https' --tlsv1.2 -fsS --max-time 30 -X POST "$url" \
+            -H 'content-type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}')
+          echo "$answer"
+          echo "$answer" | jq -e '.result.serverInfo.name' >/dev/null
+
+      - name: Install mcp-publisher
+        if: steps.gate.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          url="https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          curl --proto '=https' --tlsv1.2 -fsSL "$url" -o mcp-publisher.tar.gz
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum --check --strict
+          tar -xzf mcp-publisher.tar.gz mcp-publisher
+
+      - name: Validate server.json
+        if: steps.gate.outputs.publish == 'true'
+        run: ./mcp-publisher validate
+
+      - name: Log in with GitHub OIDC
+        if: steps.gate.outputs.publish == 'true'
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish
+        if: steps.gate.outputs.publish == 'true'
+        run: ./mcp-publisher publish
